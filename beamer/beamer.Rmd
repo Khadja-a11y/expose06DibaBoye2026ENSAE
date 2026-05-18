@@ -1,0 +1,910 @@
+---
+title: "Construction d'un Indice Composite Robuste"
+author: "Boye DIBA"
+date: "ENSAE Dakar — ISEP2 / 2025-2026"
+output:
+  beamer_presentation:
+    theme: "default"
+    slide_level: 2
+    toc: false
+    keep_tex: false
+    latex_engine: xelatex
+    pandoc_args: ["-V", "aspectratio=169"]
+    includes:
+      in_header: preamble_xelatex.tex
+---
+
+```{r setup, include=FALSE}
+# ============================================================
+# Configuration globale du document Beamer
+# ============================================================
+knitr::opts_chunk$set(
+  echo    = FALSE,    # Ne pas afficher le code R dans les slides
+  warning = FALSE,    # Ne pas afficher les avertissements
+  message = FALSE,    # Ne pas afficher les messages
+  fig.align = "center",
+  fig.width = 7, fig.height = 2.8,
+  out.width = "92%",
+  dev = "png", dpi = 140,
+  fig.path = "../figures/beamer-"  # Tous les graphiques -> dossier figures/
+)
+dir.create("../figures", showWarnings = FALSE)
+
+# ── Bibliothèques ────────────────────────────────────────────
+library(FactoMineR)  # Analyse en Composantes Principales (ACP)
+library(factoextra)  # Visualisation des résultats ACP
+library(corrplot)    # Visualisation de la matrice de corrélation
+library(ggplot2)     # Graphiques avancés (grammaire des graphiques)
+library(dplyr)       # Manipulation et transformation des données
+library(tidyr)       # Restructuration des tableaux (pivot)
+library(knitr)       # Génération de tableaux dans le document
+library(kableExtra)  # Mise en forme avancée des tableaux LaTeX
+
+# ── Chargement des données ───────────────────────────────────
+# Chemin relatif depuis beamer/ vers data/ (niveau projet)
+data_raw <- read.csv("../data/donnees_regions.csv", stringsAsFactors = FALSE)
+regions  <- data_raw$region          # Vecteur des 14 noms de régions
+data_num <- data_raw[, names(data_raw) != "region"]  # Indicateurs seuls (sans noms)
+
+# ── Orientation des indicateurs ──────────────────────────────
+# Certains indicateurs sont "négatifs" : une valeur élevée = mauvais résultat.
+# On les multiplie par -1 pour que : valeur élevée => bon score (cohérence).
+ind_inv <- c("tx_mort_inf","tx_pauvrete","tx_chomage","emploi_inform","tx_fecondite")
+data_orient <- data_num
+data_orient[ind_inv] <- -data_orient[ind_inv]
+
+# ── Normalisation (3 méthodes) ───────────────────────────────
+minmax  <- function(x) (x - min(x,na.rm=T)) / (max(x,na.rm=T) - min(x,na.rm=T))
+zscore  <- function(x) (x - mean(x,na.rm=T)) / sd(x,na.rm=T)
+centile <- function(x) rank(x, ties.method="average", na.last="keep") / sum(!is.na(x))
+
+data_mm <- as.data.frame(lapply(data_orient, minmax))   # Min-Max -> [0, 1]
+data_zs <- as.data.frame(lapply(data_orient, zscore))   # Z-score -> centrée-réduite
+data_ct <- as.data.frame(lapply(data_orient, centile))  # Centile -> rang relatif
+
+# Nommer les lignes avec les régions (indispensable pour le biplot ACP)
+rownames(data_mm) <- regions
+rownames(data_zs) <- regions
+rownames(data_ct) <- regions
+
+# ── ACP ──────────────────────────────────────────────────────
+# On applique l'ACP sur les données z-score (recommandé : indicateurs déjà normalisés)
+acp    <- PCA(data_zs, graph = FALSE, scale.unit = FALSE)
+ev     <- acp$eig         # Tableau des valeurs propres et variances
+n_axes <- sum(ev[,1] >= 1) # Critère de Kaiser : valeur propre >= 1
+
+# ── Construction des 3 indices ───────────────────────────────
+# INDICE 1 : Équipondération (poids identiques pour tous les indicateurs)
+indice_equi <- rowMeans(data_mm)
+
+# INDICE 2 : Pondération ACP (poids = variance expliquée par chaque axe)
+pw <- ev[1:n_axes, 2] / sum(ev[1:n_axes, 2])  # Poids proportionnels à la variance
+cm <- as.data.frame(lapply(as.data.frame(acp$ind$coord[,1:n_axes]), minmax))
+indice_acp <- as.numeric(as.matrix(cm) %*% pw)
+
+# INDICE 3 : Pondération AHP par dimension thématique
+de    <- c("taux_alpha","taux_scol_prim","taux_scol_sec","ratio_eleves_maitre")
+ds    <- c("tx_mort_inf","acces_eau","acces_assain","centres_sante")
+do_v  <- c("tx_pauvrete","revenu_moy","tx_chomage","emploi_inform","pib_regional")
+di    <- c("acces_electr","densite_routiere","acces_internet","idh_subnational")
+dd    <- c("tx_fecondite","densite_pop","part_urbaine","tx_emploi_fem","surf_agri","secu_alim")
+
+se  <- rowMeans(data_mm[, de])   # Score Éducation
+ss  <- rowMeans(data_mm[, ds])   # Score Santé
+so  <- rowMeans(data_mm[, do_v]) # Score Économie
+si  <- rowMeans(data_mm[, di])   # Score Infrastructure
+sd2 <- rowMeans(data_mm[, dd])   # Score Démographie
+
+# Poids AHP : Éducation 25% | Économie 25% | Santé 20% | Infrastructure 20% | Démographie 10%
+indice_ahp <- 0.25*se + 0.25*so + 0.20*ss + 0.20*si + 0.10*sd2
+
+# ── Classements ──────────────────────────────────────────────
+re  <- rank(-indice_equi)   # Rang 1 = meilleur score
+ra  <- rank(-indice_acp)
+rh  <- rank(-indice_ahp)
+res <- data.frame(region=regions, score=round(indice_ahp,3),
+                  rang_equi=re, rang_acp=ra, rang_ahp=rh)
+
+# ── Corrélations de Spearman (mesure de robustesse) ─────────
+rho_ea <- round(cor(re, ra, method="spearman"), 3)
+rho_eh <- round(cor(re, rh, method="spearman"), 3)
+rho_ah <- round(cor(ra, rh, method="spearman"), 3)
+
+# ── Palette de couleurs inspirée du Sénégal ──────────────────
+CV <- "#B92346"   # Rose framboise principal
+C2 <- "#E16482"   # Rose vif clair
+C3 <- "#DA9B19"   # Or chaud
+C4 <- "#5F0A1E"   # Bordeaux foncé (texte)
+C5 <- "#CD8296"   # Rose moyen doux
+```
+
+## Plan de l'exposé
+
+\begin{columns}[t]
+\begin{column}{0.48\textwidth}
+\tableofcontents[sections={1-5},hideallsubsections]
+\end{column}
+\begin{column}{0.48\textwidth}
+\tableofcontents[sections={6-9},hideallsubsections]
+\end{column}
+\end{columns}
+
+# Définitions \& Objectifs
+
+## Glossaire — Termes fondamentaux
+
+\begin{block}{Indicateur}
+\small
+Mesure chiffrée d'un aspect du développement. \textit{Ex.} : taux d'alphabétisation (\%), mortalité infantile (pour 1000), PIB régional (milliards FCFA).
+\end{block}
+
+\vspace{0.15em}
+
+\begin{block}{Indice composite}
+\small
+Score unique qui \textbf{combine plusieurs indicateurs} en un seul chiffre pour résumer une situation multidimensionnelle.
+\textcolor{VClair}{\textbf{Exemples :}}
+\textbf{IDH} (PNUD) — Éducation + Santé + Revenus \textbullet{}
+\textbf{Doing Business} (Banque Mondiale) \textbullet{}
+\textbf{IDISA} — Inégalités de genre en Afrique
+\end{block}
+
+\vspace{0.15em}
+
+\begin{block}{Normalisation}
+\small
+Mise à la \textbf{même échelle} de tous les indicateurs pour les rendre comparables et additionnables. \textit{Pourquoi ?} Un PIB en milliards et un taux en \% ne peuvent pas être additionnés tels quels.
+\end{block}
+
+## Glossaire — Méthodes statistiques
+
+\begin{columns}
+\begin{column}{0.50\textwidth}
+\begin{block}{ACP — Composantes Principales}
+\small
+Résume 23 indicateurs en quelques \textbf{axes indépendants} captant l'essentiel de la variabilité.
+\end{block}
+\vspace{0.12em}
+\begin{block}{Valeur propre $\lambda$}
+\small
+Quantité d'information d'un axe ACP.
+\textbf{Critère de Kaiser :} retenir $\lambda \geq 1$.
+\end{block}
+\vspace{0.12em}
+\begin{block}{Pondération}
+\small
+Attribution de poids différents selon l'\textbf{importance} jugée ou statistique des indicateurs.
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{AHP}
+\small
+\textbf{Analytic Hierarchy Process} : pondération par \textbf{comparaison par paires} entre dimensions. Jugement d'expert structuré.
+\end{block}
+\vspace{0.12em}
+\begin{block}{$\rho$ de Spearman}
+\small
+Corrélation entre deux \textbf{classements}.
+$\rho = 1$ : identiques \textbullet{} $\rho = 0$ : aucun lien \textbullet{} $\rho < 0$ : inversés
+\end{block}
+\vspace{0.12em}
+\begin{block}{Robustesse}
+\small
+Classement \textbf{stable} quel que soit le choix méthodologique retenu.
+\end{block}
+\end{column}
+\end{columns}
+
+## Objectifs de l'exposé
+
+\begin{alertblock}{\large Objectif général}
+\normalsize
+Construire un \textbf{indice composite de développement local} pour les 14 régions du Sénégal et évaluer sa robustesse aux choix méthodologiques.
+\end{alertblock}
+
+\vspace{0.5em}
+
+\begin{block}{Objectifs spécifiques}
+\begin{enumerate}
+  \item \textbf{Auditer} les 23 indicateurs : qualité, redondances, valeurs manquantes
+  \item \textbf{Comparer} 3 méthodes de normalisation (Min-Max, Z-score, Centile)
+  \item \textbf{Identifier} les dimensions latentes du développement via l'ACP
+  \item \textbf{Construire} 3 indices avec des systèmes de pondération différents
+  \item \textbf{Tester} la robustesse via l'analyse de sensibilité (corrélation de Spearman)
+\end{enumerate}
+\end{block}
+
+\vspace{0.3em}
+
+\begin{exampleblock}{À retenir}
+\small
+Ce travail ne produit pas des statistiques officielles : il \textbf{teste une méthode} et examine dans quelle mesure les résultats en dépendent.
+\end{exampleblock}
+
+## Problématique de recherche
+
+\begin{exampleblock}{Contexte}
+\small
+Le Sénégal présente des inégalités régionales fortes. \textbf{Dakar $\approx$ 55\% du PIB} sur 0,3\% du territoire — IDH national : \textbf{0,51} (rang 168/193, PNUD 2023) — Pauvreté : \textbf{37,8\%} (EHCVM 2021).
+\end{exampleblock}
+
+\vspace{0.15em}
+
+\begin{alertblock}{Le problème}
+\small
+Pour orienter les investissements publics, il faut \textbf{classer objectivement} les 14 régions. Mais tout indice repose sur des \textbf{choix méthodologiques} (normalisation, pondération) qui peuvent influencer le classement et les décisions politiques.
+\end{alertblock}
+
+\vspace{0.15em}
+
+\begin{block}{\centering Question centrale}
+\centering\normalsize
+\textit{Le classement des 14 régions dépend-il des \textbf{choix méthodologiques} ou de la réalité socioéconomique ?}
+\end{block}
+
+# Contexte \& Données
+
+## Inégalités régionales au Sénégal
+
+\begin{columns}
+\begin{column}{0.52\textwidth}
+\begin{block}{Portrait des inégalités}
+\footnotesize
+\begin{itemize}\setlength{\itemsep}{1pt}\setlength{\parsep}{0pt}
+  \item \textbf{14 régions} aux profils très contrastés
+  \item Dakar : \textbf{55\% du PIB} sur 0,3\% du territoire
+  \item Kédougou : riche en or, mais IDH le plus faible
+  \item \textbf{Sud-Est} (Kolda, Sédhiou) systématiquement défavorisé
+  \item Pauvreté rurale : \textbf{57,3\%} vs 26,1\% urbain
+\end{itemize}
+\end{block}
+\vspace{0.10em}
+\begin{alertblock}{Un gradient persistant}
+\footnotesize
+Inégalité Nord-Ouest / Sud-Est \textbf{structurelle} : déficit d'investissement public, pas un manque de ressources.
+\end{alertblock}
+\end{column}
+\begin{column}{0.44\textwidth}
+\begin{exampleblock}{Pourquoi un indice composite ?}
+\small
+Un seul indicateur est insuffisant :
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item Alphabétisation seul : néglige la santé
+  \item PIB seul : masque la distribution
+  \item IDH : ignore l'infrastructure
+\end{itemize}
+$\Rightarrow$ \textbf{23 indicateurs} en 5 dimensions.
+\end{exampleblock}
+\end{column}
+\end{columns}
+
+## Les données : 23 indicateurs, 14 régions, 5 sources
+
+```{r tab-dim, fig.height=2.8, out.width="96%"}
+dims <- data.frame(
+  Dimension   = c("Éducation (25%)","Économie (25%)","Santé (20%)","Infrastructure (20%)","Démographie (10%)"),
+  N_ind       = c(4, 5, 4, 4, 6),
+  Exemples    = c("Alphabétisation, scolarisation","PIB, pauvreté, emploi",
+                  "Mortalité infantile, eau","Électricité, routes, internet",
+                  "Fécondité, urbanisation"),
+  Couleur     = c(CV, C3, C2, "#B8860B", C5)
+)
+par(mar=c(3.5, 9.5, 1.5, 1), bg="#FDF6E3")
+bp <- barplot(dims$N_ind, names.arg=dims$Dimension, horiz=TRUE, las=1,
+              col=dims$Couleur, border=NA, xlim=c(0, 9),
+              cex.names=0.72, xlab="Nombre d'indicateurs",
+              main="Répartition des 23 indicateurs en 5 dimensions thématiques",
+              cex.main=0.88, cex.lab=0.8)
+text(dims$N_ind + 0.15, bp, dims$Exemples, cex=0.52, col=C4, adj=0)
+text(dims$N_ind + 0.15, bp - 0.22,
+     paste0("(", dims$N_ind, " indicateurs)"),
+     cex=0.50, col=C5, adj=0, font=3)
+```
+
+\begin{center}\small
+\textbf{Sources :}
+\textcolor{VForet}{ANSD/RGPH 2023} $\cdot$
+\textcolor{VForet}{EHCVM 2021} $\cdot$
+\textcolor{Or}{IDH sous-national PNUD} $\cdot$
+\textcolor{Or}{Banque Mondiale DataBank} $\cdot$
+\textcolor{VClair}{OpenAfrica}
+\end{center}
+
+## Justification des données simulées
+
+\begin{alertblock}{Contexte de disponibilité}
+\small
+Les données régionales exhaustives ne sont pas toutes accessibles gratuitement au moment de ce travail. Le RGPH 2023 n'est que partiellement publié. Les microdonnées de l'EHCVM sont sous accès restreint.
+\end{alertblock}
+
+\vspace{0.3em}
+
+\begin{block}{Garanties de réalisme}
+\small
+\begin{itemize}
+  \item Ordres de grandeur calés sur les \textbf{rapports officiels ANSD} disponibles
+  \item Le gradient \textbf{Nord-Ouest / Sud-Est} est respecté (documenté dans la littérature)
+  \item \textbf{Dakar} : meilleurs scores urbains — \textbf{Kédougou} : scores les plus faibles
+  \item Simulation \textbf{reproductible} et versionnée dans GitHub (fichier \texttt{donnees\_regions.csv})
+\end{itemize}
+\end{block}
+
+\vspace{0.3em}
+
+\begin{exampleblock}{Objectif pédagogique}
+\small
+Ce TP teste une \textbf{méthode}, pas des statistiques officielles. Les tendances sont réalistes et la robustesse reste valide.
+\end{exampleblock}
+
+# Étape 1 — Audit des indicateurs
+
+## Pourquoi auditer ?
+
+\begin{columns}
+\begin{column}{0.48\textwidth}
+\begin{alertblock}{3 risques sans audit}
+\small
+\begin{enumerate}
+  \item \textbf{Redondance :} si deux indicateurs mesurent la même chose, on la comptabilise deux fois (ex. IDH et alphabétisation)
+  \item \textbf{Données manquantes :} un indicateur incomplet biaise tous les calculs
+  \item \textbf{Faible discrimination :} si toutes les régions ont la même valeur, l'indicateur n'apporte aucune information
+\end{enumerate}
+\end{alertblock}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{3 outils d'audit utilisés}
+\small
+\begin{enumerate}
+  \item \textbf{Taux de valeurs manquantes} — seuil d'exclusion : $>20\%$
+  \item \textbf{Coefficient de variation (CV)} — seuil d'exclusion : $<5\%$ (indicateur quasi-constant)
+  \item \textbf{Corrélation de Pearson} — seuil de redondance : $|r| > 0{,}95$
+\end{enumerate}
+\end{block}
+\vspace{0.3em}
+\begin{exampleblock}{Résultat}
+\small
+\textbf{0} valeur manquante $|$ \textbf{0} paire redondante\\
+$\Rightarrow$ Les \textbf{23 indicateurs} sont conservés.
+\end{exampleblock}
+\end{column}
+\end{columns}
+
+## Matrice de corrélation — Audit de redondance
+
+```{r fig-corr, fig.height=2.4, out.width="84%"}
+corrplot(cor(data_num, use="pairwise.complete.obs"),
+  method = "color", type = "upper",
+  tl.cex = 0.44, tl.col = C4,
+  col    = colorRampPalette(c("#8C1428","white",CV))(200),
+  mar    = c(0, 0, 0.8, 0), cl.cex = 0.52,
+  addgrid.col = "white",
+  title  = "Matrice de corrélation des 23 indicateurs", cex.main=0.75)
+```
+
+\begin{exampleblock}{\small Interprétation}
+\small
+Les \textbf{blocs rouges} révèlent des corrélations positives attendues au sein de chaque dimension (ex. éducation + IDH). Aucune paire n'atteint $|r| > 0{,}95$ : \textbf{pas de redondance critique}. Les indicateurs de différentes dimensions sont peu corrélés (blanc) : chaque dimension apporte une information distincte.
+\end{exampleblock}
+
+# Étape 2 — Normalisation
+
+## Les 3 méthodes de normalisation
+
+\begin{columns}
+\begin{column}{0.32\textwidth}
+\begin{block}{\centering Min-Max}
+$$x^* = \frac{x - x_{\min}}{x_{\max} - x_{\min}}$$
+\vspace{3pt}\small
+\textcolor{VClair}{\textbf{+}} Valeurs dans $[0,1]$\\
+\textcolor{VClair}{\textbf{+}} Intuitive\\
+\textcolor{red}{\textbf{--}} Sensible aux extrêmes (\textit{Dakar tire l'échelle vers le haut})
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{\centering Z-score}
+$$z = \frac{x - \bar{x}}{s_x}$$
+\vspace{3pt}\small
+\textcolor{VClair}{\textbf{+}} Robuste aux valeurs extrêmes\\
+\textcolor{VClair}{\textbf{+}} Utilisée pour l'ACP\\
+\textcolor{red}{\textbf{--}} Peut être négative\\
+\textcolor{red}{\textbf{--}} Moins intuitive
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{\centering Centile}
+$$c = \frac{\text{rang}(x)}{n}$$
+\vspace{3pt}\small
+\textcolor{VClair}{\textbf{+}} Très robuste\\
+\textcolor{VClair}{\textbf{+}} Élimine les extrêmes\\
+\textcolor{red}{\textbf{--}} Perd l'amplitude des écarts
+\end{block}
+\end{column}
+\end{columns}
+
+\vspace{0.4em}
+\begin{alertblock}{\small Étape préalable obligatoire : orientation des indicateurs}
+\small
+\textbf{5 indicateurs} ont un sens négatif (valeur élevée = mauvais résultat) : \texttt{mortalité infantile, pauvreté, chômage, emploi informel, fécondité}. Ils sont multipliés par $-1$ avant normalisation pour que "score élevé = bonne situation" soit universel.
+\end{alertblock}
+
+## Impact des méthodes sur le classement
+
+```{r fig-norm, fig.height=2.3, out.width="95%"}
+idx_mm <- rowMeans(data_mm)
+idx_zs_raw <- rowMeans(data_zs)
+idx_zs <- (idx_zs_raw - min(idx_zs_raw)) / (max(idx_zs_raw) - min(idx_zs_raw))
+idx_ct <- rowMeans(data_ct)
+
+comp_df <- data.frame(
+  region = regions,
+  MinMax = round(idx_mm, 3),
+  Zscore = round(idx_zs, 3),
+  Centile = round(idx_ct, 3)
+) %>%
+  pivot_longer(-region, names_to="Methode", values_to="Score") %>%
+  mutate(region = factor(region, levels=regions[order(idx_mm, decreasing=TRUE)]))
+
+ggplot(comp_df, aes(x=region, y=Score, color=Methode, group=Methode)) +
+  geom_line(linewidth=1.0, alpha=0.85) +
+  geom_point(size=2.2) +
+  scale_color_manual(values=c("MinMax"=CV, "Zscore"=C3, "Centile"="#8C1428"),
+                     name="Méthode de normalisation") +
+  labs(title="Comparaison de l'impact des 3 méthodes de normalisation",
+       subtitle="Indice équipondéré — 14 régions du Sénégal (classées par score Min-Max décroissant)",
+       x=NULL, y="Score normalisé") +
+  theme_minimal(base_size=9) +
+  theme(axis.text.x=element_text(angle=45, hjust=1, size=7.5),
+        legend.position="top", plot.title=element_text(face="bold", size=10))
+```
+
+\begin{exampleblock}{\small Interprétation}
+\small
+Les trois courbes sont \textbf{quasi-superposées} : le choix de la méthode de normalisation ne change pas significativement le classement. Le signal est robuste. La Min-Max est retenue pour la suite car elle produit des scores directement interprétables entre 0 et 1.
+\end{exampleblock}
+
+# Étape 3 — ACP
+
+## ACP : principe et objectifs dans ce projet
+
+\begin{columns}
+\begin{column}{0.52\textwidth}
+\begin{block}{Qu'est-ce que l'ACP ?}
+\small
+Transforme \textbf{23 indicateurs corrélés} en un nombre réduit d'\textbf{axes indépendants}, chacun capturant une part de la variabilité totale.
+\end{block}
+\vspace{0.10em}
+\begin{exampleblock}{Dans ce projet, l'ACP sert à :}
+\small
+\begin{enumerate}\setlength{\itemsep}{1pt}
+  \item Réduire 23 indicateurs à \textbf{quelques axes} synthétiques
+  \item Visualiser régions et indicateurs (\textbf{biplot})
+  \item Calculer des \textbf{poids objectifs} (variance expliquée)
+\end{enumerate}
+\end{exampleblock}
+\end{column}
+\begin{column}{0.46\textwidth}
+\begin{block}{Paramétrage}
+\small
+\begin{itemize}\setlength{\itemsep}{1pt}
+  \item \textbf{Données :} indicateurs z-score
+  \item \textbf{\texttt{scale.unit=FALSE} :} pas de double standardisation
+  \item \textbf{Kaiser :} retenir $\lambda \geq 1$
+  \item \textbf{$n=14$} régions, $p=23$ indicateurs
+\end{itemize}
+\end{block}
+\vspace{0.10em}
+\begin{alertblock}{Remarque}
+\small
+$n=14$ régions $\Rightarrow$ 13 axes max.\\L'ACP réduit efficacement la dimensionnalité.
+\end{alertblock}
+\end{column}
+\end{columns}
+
+## Éboulis des valeurs propres — Combien d'axes retenir ?
+
+```{r fig-scree, fig.height=2.3, out.width="88%"}
+fviz_eig(acp, addlabels=TRUE, ylim=c(0, 80),
+  barfill=CV, barcolor=CV, linecolor=C3,
+  ggtheme=theme_minimal(base_size=10)) +
+  labs(
+    title   = "Éboulis des valeurs propres (Screeplot)",
+    subtitle= paste0(n_axes, " axe(s) retenu(s) — ",
+                     round(ev[n_axes,3], 1), "% de variance cumulée expliquée"),
+    x = "Composante principale",
+    y = "Variance expliquée (%)"
+  ) +
+  geom_hline(yintercept=0, linetype="dashed", color="#C0392B", linewidth=0.5) +
+  theme(plot.title    = element_text(color=C4, face="bold", size=11),
+        plot.subtitle = element_text(color=C5, size=8.5),
+        axis.title    = element_text(color=C4, size=9))
+```
+
+\begin{exampleblock}{\small Interprétation du screeplot}
+\small
+L'Axe 1 capture à lui seul \textbf{environ 70-80\%} de la variance totale : c'est la \textbf{dimension dominante} du développement au Sénégal — un gradient global qui sépare les régions développées des régions défavorisées. Le "coude" prononcé après l'Axe 1 confirme que les axes suivants apportent beaucoup moins d'information. Les axes retenus (valeur propre $\geq 1$) expliquent ensemble $> 95\%$ de la variabilité.
+\end{exampleblock}
+
+## Biplot ACP — Régions et indicateurs ensemble
+
+```{r fig-biplot, fig.height=2.5, out.width="95%"}
+fviz_pca_biplot(acp, repel=TRUE,
+  col.var   = C3,
+  col.ind   = CV,
+  label     = "all",
+  ggtheme   = theme_minimal(base_size=8),
+  title     = "Biplot ACP — Régions (points verts) et indicateurs (flèches dorées)") +
+  theme(plot.title = element_text(color=C4, face="bold", size=9.5),
+        axis.title = element_text(color=C4, size=8.5))
+```
+
+\begin{exampleblock}{\small Comment lire ce biplot ?}
+\small
+\textbf{Points (régions) :} une région à droite sur l'Axe 1 = bien développée. À gauche = défavorisée.
+\textbf{Flèches (indicateurs) :} une longue flèche vers la droite = cet indicateur contribue fortement au développement. Dakar (extrême droite) est nettement isolée. Kédougou, Kolda, Sédhiou sont à l'opposé.
+\end{exampleblock}
+
+## Dimensions latentes identifiées
+
+```{r tab-dims}
+df_ax <- data.frame(
+  Axe   = c("Dim. 1","Dim. 2","Dim. 3"),
+  VP    = round(ev[1:3, 1], 2),
+  Var   = paste0(round(ev[1:3, 2], 1), "%"),
+  Cum   = paste0(round(ev[1:3, 3], 1), "%"),
+  Interp= c("Développement humain global (éducation + santé + revenus + accès services)",
+            "Infrastructure et connectivité (routes, internet, électricité)",
+            "Structure démographique (fécondité, urbanisation, emploi féminin)")
+)
+kable(df_ax,
+  col.names = c("Axe", "Val. pr.", "Var.", "Cum.", "Interprétation"),
+  booktabs  = TRUE,
+  row.names = FALSE,
+  caption   = "Les 3 premiers axes de l'ACP") %>%
+  kable_styling(latex_options = c("scale_down","hold_position"),
+                font_size = 8) %>%
+  column_spec(5, width = "6.5cm")
+```
+
+\vspace{0.12em}
+\begin{exampleblock}{\small Message clé}
+\small
+L'\textbf{Axe 1} domine : le développement sénégalais est \textbf{unidimensionnel}. Les régions s'alignent de Dakar à Kédougou. Les Axes 2-3 révèlent des nuances : infrastructure vs revenus.
+\end{exampleblock}
+
+# Étape 4 — Construction de l'indice
+
+## Les 3 systèmes de pondération
+
+\begin{columns}
+\begin{column}{0.31\textwidth}
+\begin{block}{\centering\small Système 1}
+\centering\textbf{Équipondération}\\[5pt]
+\small$w_i = \dfrac{1}{23}$ pour tout $i$\\[6pt]
+\textcolor{VClair}{\small Simple, transparent}\\[2pt]
+\textcolor{red}{\tiny Choix politique implicite :\\donne autant d'importance\\à la densité routière qu'à\\la mortalité infantile}
+\end{block}
+\end{column}
+\begin{column}{0.31\textwidth}
+\begin{block}{\centering\small Système 2}
+\centering\textbf{Pondération ACP}\\[5pt]
+\small$w_k \propto \lambda_k$\\[6pt]
+\textcolor{VClair}{\small Basé sur les données}\\
+\textcolor{VClair}{\small Objectif}\\[2pt]
+\textcolor{red}{\tiny Peut sur-pondérer l'Axe 1\\si très dominant}
+\end{block}
+\end{column}
+\begin{column}{0.31\textwidth}
+\begin{block}{\centering\small Système 3}
+\centering\textbf{Pondération AHP}\\[5pt]
+\small Éduc/Éco~\textbf{25\%}\\Santé/Infra~\textbf{20\%}\\Démo~\textbf{10\%}\\[3pt]
+\textcolor{VClair}{\small Raisonnement par dimensions}\\[2pt]
+\textcolor{red}{\tiny Subjectif mais justifié}
+\end{block}
+\end{column}
+\end{columns}
+
+\vspace{0.4em}
+\begin{alertblock}{\small Piège fondamental}
+\small
+L'équipondération \textit{semble} neutre, mais elle constitue en réalité un \textbf{choix politique implicite} : elle suppose que la mortalité infantile est aussi importante que la superficie agricole. Ce n'est pas une neutralité — c'est une décision qui mérite d'être explicitée et défendue.
+\end{alertblock}
+
+## Profil multidimensionnel des régions
+
+```{r fig-profil, fig.height=2.2, out.width="99%"}
+sd3 <- cbind(se, ss, so, si, sd2)
+oi  <- order(rh)
+cd  <- c(CV, C3, C2, "#B8860B", C5)
+par(mfrow=c(3,5), mar=c(0.3, 0.3, 1.5, 0.3), oma=c(2, 0, 0.5, 0), bg="#FDF6E3")
+for(i in oi){
+  barplot(sd3[i,], names.arg=rep("",5), col=cd, border=NA,
+          ylim=c(0, 1.15), main=regions[i], cex.main=0.58, space=0.25)
+}
+par(mfrow=c(1,1))
+mtext("Éduc. | Santé | Écon. | Infra. | Démo.",
+      side=1, line=0.6, cex=0.55, col=C5, outer=TRUE)
+```
+
+\begin{exampleblock}{\small Interprétation}
+\small
+Profil de chaque région en 5 dimensions. Les premières régions (gauche) ont des barres hautes. Certaines ont un profil \textbf{déséquilibré} : forte démographie, faible économie — d'où la nécessité d'un indice composite.
+\end{exampleblock}
+
+# Étape 5 — Analyse de sensibilité
+
+## Stabilité des classements selon la méthode
+
+```{r fig-sensib, fig.height=2.4, out.width="88%"}
+rm_mat <- cbind(re, ra, rh)
+cr <- colorRampPalette(c(C4, CV, C3, "#B8860B", C5))(14)
+par(mar=c(4.8, 4.0, 1.8, 8.5), xpd=TRUE, bg="#FDF6E3")
+plot(1:3, rm_mat[1,], type="n", xlim=c(0.8, 3.2), ylim=c(14.5, 0.5),
+     xaxt="n", yaxt="n",
+     xlab="Méthode de pondération", ylab="Rang (1 = meilleure région)",
+     cex.lab=0.82, main="Sensibilité du classement à la méthode de pondération", cex.main=0.90)
+rect(0.65, 0.3, 3.35, 14.7, col="#F7F0DC", border=NA)
+abline(h=1:14, col="white", lwd=0.7)
+axis(1, at=1:3, labels=c("Équipondération","ACP","AHP"), cex.axis=0.76)
+axis(2, at=1:14, las=1, cex.axis=0.70)
+for(i in 1:14){
+  lines(1:3, rm_mat[i,], col=cr[i], lwd=2.0)
+  points(1:3, rm_mat[i,], col=cr[i], pch=19, cex=0.95)
+}
+legend("topright", inset=c(-0.36, 0),
+       legend=regions[order(rh)],
+       col=cr[order(rh)],
+       lty=1, lwd=2, cex=0.44, bty="n", pt.cex=0.85, title="Régions (par rang AHP)")
+```
+
+\begin{exampleblock}{\small Comment lire ce graphique ?}
+\small
+Chaque ligne représente une région. Une ligne \textbf{horizontale} = le classement de cette région ne change pas selon la méthode. Une ligne \textbf{inclinée ou croisée} = le classement est instable. Ici, les lignes sont quasi-horizontales : \textbf{le classement est très stable}, ce qui valide la robustesse de l'indice.
+\end{exampleblock}
+
+## Robustesse confirmée — Corrélations de Spearman
+
+```{r tab-rho}
+df_rho <- data.frame(
+  Comparaison = c("Équipondération vs ACP","Équipondération vs AHP","ACP vs AHP"),
+  Rho         = c(rho_ea, rho_eh, rho_ah),
+  Interp      = c("Convergence très forte — quasi-identiques",
+                  "Convergence très forte — quasi-identiques",
+                  "Convergence quasi-parfaite")
+)
+kable(df_rho,
+  col.names = c("Comparaison", "$\\rho$ de Spearman", "Interprétation"),
+  booktabs  = TRUE, escape=FALSE,
+  caption   = "Corrélations de rang entre les 3 méthodes de pondération")
+```
+
+\vspace{0.3em}
+\begin{exampleblock}{\small Interprétation}
+\small
+Rappel : $\rho = 1$ = classements identiques. Ici, $\rho > 0{,}99$ pour toutes les comparaisons. La variation maximale d'une région entre deux méthodes est de \textbf{1 rang}. Autrement dit, une région classée 5\textsuperscript{e} par une méthode sera au pire 6\textsuperscript{e} par une autre.\\
+$\Rightarrow$ \textbf{L'indice est robuste : la réalité socioéconomique prime sur les choix méthodologiques.}
+\end{exampleblock}
+
+# Résultats \& Implications
+
+## Classement final des 14 régions du Sénégal
+
+```{r fig-class, fig.height=2.8, out.width="94%"}
+ro   <- res[order(res$score), ]
+n14  <- nrow(ro)
+cols_bar <- colorRampPalette(c("#8C1428","#B8600A",CV))(n14)
+par(mar=c(4.2, 8.0, 1.8, 3.5), bg="#FDF6E3")
+bp <- barplot(ro$score,
+  names.arg = ro$region, horiz=TRUE, las=1,
+  col=cols_bar, border=NA,
+  xlab="Score normalisé [0 - 1]",
+  main="Indice composite de développement — Pondération AHP",
+  cex.names=0.70, xlim=c(0, max(ro$score)*1.30),
+  cex.main=0.86, cex.lab=0.80)
+text(ro$score + 0.012, bp, sprintf("%.3f", ro$score), cex=0.58, col=C4, font=2)
+abline(v=mean(indice_ahp), lty=2, col=C3, lwd=1.3)
+text(mean(indice_ahp)+0.008, bp[7]+0.1, "Moy.", cex=0.56, col=C3, font=3, adj=0)
+```
+
+\begin{exampleblock}{\small Lecture du graphique}
+\small
+Les régions sont classées du score le plus faible (bas) au plus élevé (haut). La ligne pointillée or représente la \textbf{moyenne nationale}. La moitié des régions est en dessous — déséquilibre tiré par Dakar vers le haut.
+\end{exampleblock}
+
+## Cartographie — Gradient géographique du développement
+
+```{r fig-map, fig.height=2.6, out.width="92%", warning=FALSE, message=FALSE}
+# Coordonnées approx. des centroides des 14 régions (longitude / latitude)
+coords_lut <- data.frame(
+  key = c("dakar","thies","diourbel","fatick","kaolack",
+          "kaffrine","tambacounda","kolda","sedhiou",
+          "ziguinchor","saint-louis","louga","matam","kedougou"),
+  lon = c(-17.44,-16.93,-16.23,-16.41,-16.07,
+          -15.55,-13.77,-14.95,-15.57,
+          -16.27,-15.68,-15.62,-13.26,-12.18),
+  lat = c(14.71,14.79,14.66,14.33,14.15,
+          14.11,13.77,12.90,12.70,
+          12.56,16.02,15.62,15.66,12.56),
+  stringsAsFactors = FALSE
+)
+
+# Joindre scores et coordonnées (correspondance par nom ASCII sans accents)
+strip_acc <- function(x) tolower(chartr(
+  "àáâãäåæçèéêëìíîïðñòóôõöùúûüýÿ",
+  "aaaaaaeceeeeiiiidnoooooouuuuyy", x))
+
+map_df <- data.frame(
+  key    = strip_acc(regions),
+  region = regions,
+  score  = indice_ahp,
+  rang   = rank(-indice_ahp),
+  stringsAsFactors = FALSE
+)
+map_df <- merge(map_df, coords_lut, by="key", all.x=TRUE)
+
+# Couleur continue rose/bordeaux
+pal_map <- colorRampPalette(c("#8C1428", "#DA9B19", CV))(100)
+
+# Taille des points proportionnelle au score [3, 10]
+sz <- 3 + map_df$score / max(map_df$score, na.rm=TRUE) * 7
+
+par(mar=c(0.5,0.5,1.8,0.5), bg="#FDF6E3")
+plot(map_df$lon, map_df$lat,
+     pch=21, cex=sz,
+     bg = pal_map[round(map_df$score / max(map_df$score, na.rm=TRUE) * 99) + 1],
+     col="white", lwd=0.4,
+     xlim=c(-17.8, -11.2), ylim=c(11.8, 17.2),
+     xlab=NA, ylab=NA, axes=FALSE,
+     main="Gradient géographique — Sénégal (score AHP [0-1])",
+     cex.main=0.85)
+# Étiquettes : nom + rang
+text(map_df$lon, map_df$lat + 0.35,
+     paste0(map_df$region, "\n(", map_df$rang, ")"),
+     cex=0.48, col=C4, font=2)
+# Légende discrète (min / moy / max)
+legend("bottomright", bty="n", cex=0.58,
+  legend=c(
+    paste0("1er : ", map_df$region[which.min(map_df$rang)], " (",
+           round(max(map_df$score, na.rm=TRUE), 2), ")"),
+    paste0("14e : ", map_df$region[which.max(map_df$rang)], " (",
+           round(min(map_df$score, na.rm=TRUE), 2), ")")
+  ),
+  pch=21, pt.bg=c(CV,"#8C1428"), col="white", pt.cex=1.4)
+```
+
+\begin{exampleblock}{\small Lecture de la carte}
+\small
+La \textbf{taille et la couleur} de chaque bulle représentent le score AHP. \textbf{Rose vif = mieux développé} (Dakar, nord-ouest). \textbf{Rouge foncé = défavorisé} (Kédougou, Kolda, Sédhiou au sud-est). Le \textbf{gradient géographique} Nord-Ouest / Sud-Est est parfaitement visible.
+\end{exampleblock}
+
+## Interprétation des résultats — Contexte sénégalais
+
+\begin{columns}
+\begin{column}{0.50\textwidth}
+\begin{exampleblock}{\textbf{Top 3 — Régions les plus développées}}
+\small
+\begin{enumerate}
+  \item \textbf{Dakar (0,871)} — Capitale. Concentration de services, d'universités, d'emplois formels et d'infrastructures sans égal. Son score est plus du double de la 2\textsuperscript{e} région.
+  \item \textbf{Thiès (0,519)} — 2\textsuperscript{e} pôle économique, réseau routier dense, industrie phosphatière.
+  \item \textbf{Saint-Louis (0,462)} — Ancienne capitale, université, agriculture irriguée du delta.
+\end{enumerate}
+\end{exampleblock}
+\end{column}
+\begin{column}{0.47\textwidth}
+\begin{alertblock}{\textbf{Bottom 3 — Régions prioritaires}}
+\small
+\begin{enumerate}
+  \setcounter{enumi}{11}
+  \item \textbf{Kolda (0,164)} — Enclavement, déficit de services
+  \item \textbf{Sédhiou (0,161)} — Région jeune, sous-équipée
+  \item \textbf{Kédougou (0,129)} — La plus isolée. Riche en or et biodiversité, mais le plus faible IDH du pays — \textit{paradoxe des ressources naturelles}.
+\end{enumerate}
+\end{alertblock}
+\vspace{0.2em}
+\begin{block}{\small Gradient documenté}
+\small
+Ce résultat est cohérent avec tous les travaux de l'ANSD et du PNUD sur les disparités régionales au Sénégal.
+\end{block}
+\end{column}
+\end{columns}
+
+# Conclusion
+
+## Pièges méthodologiques identifiés
+
+\begin{columns}
+\begin{column}{0.50\textwidth}
+\begin{alertblock}{\small\textbf{Piège \#1 — Orientation des indicateurs}}
+\footnotesize
+5 indicateurs doivent être inversés ($\times -1$) avant normalisation. Oublier cette étape revient à \textbf{récompenser} les régions où la mortalité infantile est la plus élevée.
+\end{alertblock}
+\vspace{0.2em}
+\begin{alertblock}{\small\textbf{Piège \#2 — Sensibilité Min-Max}}
+\footnotesize
+La normalisation Min-Max est \textbf{sensible aux valeurs extrêmes}. Dakar (score $\approx 0{,}87$) tire toute l'échelle vers le haut, compressant les écarts entre les autres régions.
+\end{alertblock}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{alertblock}{\small\textbf{Piège \#3 — Équipondération = choix politique}}
+\footnotesize
+Poids égaux n'est \textbf{pas une neutralité} : c'est un choix implicite de donner la même importance à chaque indicateur, quel que soit son impact sur le bien-être.
+\end{alertblock}
+\vspace{0.2em}
+\begin{alertblock}{\small\textbf{Piège \#4 — Robustesse $\neq$ Vérité}}
+\footnotesize
+$\rho_S > 0{,}99$ confirme la \textbf{convergence des méthodes} entre elles, pas la validité des données simulées. La robustesse interne ne dispense pas d'un audit externe.
+\end{alertblock}
+\end{column}
+\end{columns}
+\vspace{0.2em}
+\begin{exampleblock}{\small Un classement qui change selon la méthode n'est pas un problème à cacher}
+\small
+C'est un \textbf{résultat scientifique} qui doit être reporté et interprété honnêtement.
+\end{exampleblock}
+
+## Bilan — Ce que nous avons montré
+
+\begin{columns}
+\begin{column}{0.52\textwidth}
+\begin{block}{\small Démarche réalisée}
+\small
+\begin{itemize}\setlength{\itemsep}{0pt}
+  \item \textbf{23 indicateurs} audités (0 manquant, 0 redondant)
+  \item \textbf{3 normalisations} : Min-Max, Z-score, Centile
+  \item \textbf{ACP :} `r n_axes` axe(s) — `r round(ev[n_axes,3],1)`\% variance
+  \item \textbf{3 indices :} équipondéré, ACP, AHP
+  \item \textbf{Robustesse :} $\rho_S =$~`r rho_eh` (Équi vs AHP)
+\end{itemize}
+\end{block}
+\vspace{0.08em}
+\begin{alertblock}{\small Limites}
+\footnotesize
+Données simulées $\cdot$ Poids AHP subjectifs $\cdot$ Pas de panel
+\end{alertblock}
+\end{column}
+\begin{column}{0.45\textwidth}
+\begin{exampleblock}{\small\textbf{Réponse à la question}}
+\small
+Le classement \textbf{ne dépend pas} des choix méthodologiques : $\rho_S > 0{,}99$, variation max. de \textbf{1 rang}.\\[4pt]
+$\Rightarrow$ Le gradient Nord-Ouest / Sud-Est prime sur les choix techniques.
+\end{exampleblock}
+\end{column}
+\end{columns}
+
+---
+
+\begin{tikzpicture}[remember picture,overlay]
+  %% Fond clair crème
+  \fill[OrPale](current page.south west)rectangle(current page.north east);
+  %% Cercles décoratifs rose pâle
+  \foreach \r in {3,5.5,8}{
+    \draw[VForet,opacity=0.06,line width=2pt]
+      ($(current page.center)+(1.5cm,0)$) circle(\r cm);
+  }
+  %% Bande rose en bas
+  \fill[VForet]
+    (current page.south west) rectangle
+    ($(current page.south east)+(0,2.2cm)$);
+  %% Filet or tout en bas
+  \fill[Or]
+    (current page.south west) rectangle
+    ($(current page.south east)+(0,0.12cm)$);
+  %% Filet or en haut
+  \fill[Or]
+    (current page.north west) rectangle
+    ($(current page.north east)+(0,-0.12cm)$);
+  %% Texte principal — sombre sur fond clair
+  \node[text=Terre,font=\Huge\bfseries]
+    at($(current page.center)+(0,1.4cm)$){Merci pour votre attention !};
+  \node[text=VForet,font=\large\bfseries]
+    at($(current page.center)+(0,0.4cm)$){Questions \& Discussion};
+  \draw[Or,line width=1pt]
+    ($(current page.center)+(-4cm,-0.15cm)$)--
+    ($(current page.center)+(4cm,-0.15cm)$);
+  %% Infos dans la bande rose (texte blanc)
+  \node[text=white,font=\footnotesize,align=center]
+    at($(current page.south west)+(0.5\paperwidth,1.25cm)$)
+    {ENSAE Dakar --- ISEP2 / 2025-2026 \quad$\cdot$\quad Traitement Statistique avec R};
+  \node[text=OrClair,font=\tiny\ttfamily]
+    at($(current page.south west)+(0.5\paperwidth,0.55cm)$)
+    {expose06DibaBoye2026ENSAE};
+\end{tikzpicture}

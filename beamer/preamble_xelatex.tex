@@ -1,0 +1,219 @@
+\usepackage{fontspec}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{tikz}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usetikzlibrary{calc,shadows,decorations.pathmorphing,positioning}
+
+\setmainfont{DejaVu Sans}[Scale=0.92]
+\setsansfont{DejaVu Sans}[Scale=0.92]
+
+%% ── PALETTE ROSE & OR ───────────────────────────────────────────
+\definecolor{VForet}   {RGB}{185,  35,  70}  % rose framboise principal
+\definecolor{VClair}   {RGB}{225, 100, 130}  % rose vif clair
+\definecolor{VPale}    {RGB}{255, 230, 238}  % rose très clair (fond)
+\definecolor{Or}       {RGB}{218, 155,  25}  % or chaud
+\definecolor{OrClair}  {RGB}{245, 195,  55}  % or clair lumineux
+\definecolor{OrPale}   {RGB}{255, 252, 244}  % fond crème très clair
+\definecolor{Terre}    {RGB}{ 95,  10,  30}  % bordeaux foncé (texte)
+\definecolor{Ardoise}  {RGB}{ 70,   5,  20}  % bordeaux nuit (footer)
+\definecolor{Muted}    {RGB}{205, 130, 150}  % rose moyen doux
+
+%% ── ÉLÉMENTS BEAMER DE BASE ────────────────────────────────────
+\setbeamertemplate{navigation symbols}{}
+\setbeamerfont{block body}{size=\small}
+\setbeamerfont{block body alerted}{size=\small}
+\setbeamerfont{block body example}{size=\small}
+\setbeamertemplate{blocks}[rounded][shadow=false]
+
+%% ── FOND GÉNÉRAL ───────────────────────────────────────────────
+\setbeamercolor{background canvas}{bg=OrPale}
+
+%% ── FRAMETITLE ─────────────────────────────────────────────────
+\setbeamertemplate{frametitle}{%
+  \begin{tikzpicture}[remember picture,overlay]
+    % Bande verte pleine en haut
+    \fill[VForet]
+      (current page.north west) rectangle
+      ($(current page.north east)+(0,-1.15cm)$);
+    % Filet doré sous la bande
+    \fill[Or]
+      ($(current page.north west)+(0,-1.15cm)$) rectangle
+      ($(current page.north east)+(0,-1.26cm)$);
+    % Titre blanc
+    \node[anchor=west, text=white, font=\bfseries\normalsize,
+          inner sep=0pt]
+      at ($(current page.north west)+(0.45cm,-0.60cm)$)
+      {\insertframetitle};
+  \end{tikzpicture}%
+  \vspace{0.55cm}%
+}
+
+%% ── PIED DE PAGE — numéro de page uniquement ───────────────────
+\setbeamertemplate{footline}{%
+  \begin{beamercolorbox}[wd=\paperwidth,ht=0.30cm,dp=0.15cm,rightskip=0.35cm]{footline}
+    \hfill
+    \textcolor{VForet}{\tiny\bfseries\insertframenumber\,/\,\inserttotalframenumber}%
+  \end{beamercolorbox}%
+}
+
+%% ── BLOCKS ─────────────────────────────────────────────────────
+% Block normal : vert
+\setbeamercolor{block title}     {bg=VForet, fg=white}
+\setbeamercolor{block body}      {bg=VPale,  fg=Terre}
+% Alert block : or
+\setbeamercolor{block title alerted}{bg=Or,      fg=Terre}
+\setbeamercolor{block alerted body} {bg=OrPale,  fg=Terre}
+% Example block : vert clair
+\setbeamercolor{block title example}{bg=VClair,  fg=white}
+\setbeamercolor{block body example} {bg=VPale,   fg=Terre}
+
+%% ── ITEMS ──────────────────────────────────────────────────────
+\setbeamertemplate{itemize item}
+  {\tikz\draw[fill=Or,draw=none](0,0)circle(2.2pt);}
+\setbeamertemplate{itemize subitem}
+  {\tikz\draw[fill=VClair,draw=none](0,0)circle(1.6pt);}
+\setbeamercolor{itemize item}    {fg=Or}
+\setbeamercolor{enumerate item}  {fg=VForet}
+
+%% ── PAGE DE TITRE ──────────────────────────────────────────────
+\setbeamertemplate{title page}{%
+  \begin{tikzpicture}[remember picture,overlay]
+
+    %% Fond clair crème (côté droit)
+    \fill[OrPale]
+      (current page.south west) rectangle (current page.north east);
+
+    %% Motif géométrique décoratif (cercles en filigrane rose pâle)
+    \foreach \r in {3.5,5.5,7.5}{
+      \draw[VForet,opacity=0.06,line width=2pt]
+        ($(current page.east)+(-1cm,0)$) circle (\r cm);
+    }
+
+    %% Bandeau or horizontal bas
+    \fill[Or]
+      (current page.south west) rectangle
+      ($(current page.south east)+(0,0.12cm)$);
+
+    %% Bandeau or horizontal haut
+    \fill[Or]
+      (current page.north west) rectangle
+      ($(current page.north east)+(0,-0.12cm)$);
+
+    %% Bloc rose à gauche (1/3)
+    \fill[VForet]
+      (current page.south west) rectangle
+      ($(current page.north west)+(0.33\paperwidth,0)$);
+
+    %% Filet or de séparation
+    \fill[Or]
+      ($(current page.south west)+(0.33\paperwidth,0)$) rectangle
+      ($(current page.north west)+(0.345\paperwidth,0)$);
+
+    %% ENSAE badge — légèrement plus compact
+    \node[fill=Or,rounded corners=4pt,
+          text=Terre,font=\bfseries\large,
+          inner xsep=8pt,inner ysep=4pt]
+      at ($(current page.north west)+(0.165\paperwidth,-0.85cm)$)
+      {ENSAE};
+    \node[text=OrClair,font=\footnotesize]
+      at ($(current page.north west)+(0.165\paperwidth,-1.55cm)$)
+      {Dakar \textbf{---} ISEP2};
+
+    %% Stats : répartition égale dans la zone sous le badge (≈7.35cm à 0.12cm)
+    %% Chaque groupe centré dans un tiers de la zone disponible
+    %% Zone utile : 0.20cm à 6.90cm = 6.70cm → 3 tiers de 2.23cm
+    %%   "23" : centre à 0.20 + 2.5*2.23 = 5.78cm
+    %%   "14" : centre à 0.20 + 1.5*2.23 = 3.55cm
+    %%   "5"  : centre à 0.20 + 0.5*2.23 = 1.32cm
+    \draw[Or,opacity=0.4,line width=0.5pt]
+      ($(current page.south west)+(0.06\paperwidth,4.60cm)$)--
+      ($(current page.south west)+(0.27\paperwidth,4.60cm)$);
+    \draw[Or,opacity=0.4,line width=0.5pt]
+      ($(current page.south west)+(0.06\paperwidth,2.35cm)$)--
+      ($(current page.south west)+(0.27\paperwidth,2.35cm)$);
+
+    \node[text=white,align=center]
+      at ($(current page.south west)+(0.165\paperwidth,5.70cm)$){%
+        {\color{OrClair}\LARGE\bfseries 23}\\[3pt]
+        {\small\color{white} indicateurs}};
+    \node[text=white,align=center]
+      at ($(current page.south west)+(0.165\paperwidth,3.45cm)$){%
+        {\color{OrClair}\LARGE\bfseries 14}\\[3pt]
+        {\small\color{white} régions}};
+    \node[text=white,align=center]
+      at ($(current page.south west)+(0.165\paperwidth,1.20cm)$){%
+        {\color{OrClair}\LARGE\bfseries 5}\\[3pt]
+        {\small\color{white} sources}};
+
+    %% Titre principal — texte sombre sur fond clair
+    \node[anchor=west,text width=0.60\paperwidth]
+      at ($(current page.west)+(0.38\paperwidth, 1.5cm)$){%
+        {\color{Terre}\large\bfseries Construction d'un}\\[2pt]
+        {\color{Terre}\large\bfseries Indice Composite Robuste}\\[5pt]
+        {\color{Or}\bfseries\normalsize pour les 14 Régions du Sénégal}};
+
+    %% Sous-titre / thème
+    \node[anchor=west,text width=0.60\paperwidth,text=Muted,font=\footnotesize]
+      at ($(current page.west)+(0.38\paperwidth, 0.30cm)$)
+      {Thème 6 \textbullet{} Traitement Statistique avec R \textbullet{} ISEP2};
+
+    %% Filet or sous le titre
+    \fill[Or]
+      ($(current page.west)+(0.38\paperwidth,-0.05cm)$)
+      rectangle +(0.57\paperwidth, 0.055cm);
+
+    %% Auteur + code
+    \node[anchor=west,text width=0.60\paperwidth]
+      at ($(current page.west)+(0.38\paperwidth,-0.75cm)$){%
+        {\color{Terre}\bfseries\normalsize Boye DIBA}\\[3pt]
+        {\color{Muted}\tiny\ttfamily expose06DibaBoye2026ENSAE}};
+
+    %% Date bas droite
+    \node[anchor=east,text=Muted,font=\footnotesize]
+      at ($(current page.south east)+(-0.4cm, 0.55cm)$)
+      {ENSAE Dakar --- 2025-2026};
+
+  \end{tikzpicture}%
+}
+
+%% ── SLIDES DE SECTION ─────────────────────────────────────────
+\AtBeginSection[]{%
+  \begin{frame}[plain]
+  \begin{tikzpicture}[remember picture,overlay]
+    %% Fond clair crème
+    \fill[OrPale](current page.south west)rectangle(current page.north east);
+    %% Bande rose principale (haut)
+    \fill[VForet]
+      (current page.north west) rectangle
+      ($(current page.north east)+(0,-3.2cm)$);
+    %% Bande rose secondaire (bas)
+    \fill[VForet]
+      (current page.south west) rectangle
+      ($(current page.south east)+(0,1.8cm)$);
+    %% Filets or
+    \fill[Or]
+      ($(current page.north west)+(0,-3.2cm)$) rectangle
+      ($(current page.north east)+(0,-3.35cm)$);
+    \fill[Or]
+      ($(current page.south west)+(0,1.8cm)$) rectangle
+      ($(current page.south east)+(0,1.95cm)$);
+    \fill[Or]
+      (current page.south west) rectangle
+      ($(current page.south east)+(0,0.10cm)$);
+    %% Titre de section — sombre sur fond clair au centre
+    \node[text=Terre, font=\LARGE\bfseries, align=center,
+          text width=0.85\paperwidth]
+      at ($(current page.center)+(0,0.3cm)$)
+      {\insertsectionhead};
+    \draw[Or,line width=0.8pt]
+      ($(current page.center)+(-3.5cm,-0.5cm)$)--
+      ($(current page.center)+(3.5cm,-0.5cm)$);
+    \node[anchor=east,text=VForet,font=\small\bfseries,inner sep=0pt]
+      at ($(current page.south east)+(-0.4cm,0.30cm)$)
+      {\insertframenumber\,/\,\inserttotalframenumber};
+  \end{tikzpicture}
+  \end{frame}
+}
