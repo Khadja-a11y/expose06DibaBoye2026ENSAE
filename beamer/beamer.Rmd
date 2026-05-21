@@ -16,106 +16,246 @@ output:
 
 ```{r setup, include=FALSE}
 # ============================================================
-# Configuration globale du document Beamer
+# CHUNK SETUP — Configuration globale + tous les calculs
+# Ce chunk s'exécute en premier et en arrière-plan (invisible).
+# Il prépare TOUTES les données, indices et objets réutilisés
+# dans les chunks graphiques suivants.
 # ============================================================
+
+# ── Options globales knitr ───────────────────────────────────
+# knitr : package qui pilote l'exécution des chunks R dans R Markdown.
+# opts_chunk$set() fixe les paramètres par défaut pour TOUS les chunks.
 knitr::opts_chunk$set(
-  echo    = FALSE,    # Ne pas afficher le code R dans les slides
-  warning = FALSE,    # Ne pas afficher les avertissements
-  message = FALSE,    # Ne pas afficher les messages
-  fig.align = "center",
-  fig.width = 7, fig.height = 2.8,
-  out.width = "92%",
-  dev = "png", dpi = 140,
-  fig.path = "../figures/beamer-"  # Tous les graphiques -> dossier figures/
+  echo    = FALSE,   # Ne pas afficher le code source R dans les slides
+  warning = FALSE,   # Masquer les avertissements R (ex. NAs introduits)
+  message = FALSE,   # Masquer les messages d'info des packages
+  fig.align = "center",          # Centrer tous les graphiques
+  fig.width = 7, fig.height = 2.5, # Dimensions par défaut (en pouces)
+  out.width = "92%",             # Largeur d'affichage dans le slide
+  dev = "png", dpi = 140,        # Format PNG, résolution 140 dpi
+  fig.path = "../figures/beamer-" # Sauvegarder les graphiques dans figures/
 )
+
+# Créer le dossier figures/ s'il n'existe pas encore
 dir.create("../figures", showWarnings = FALSE)
 
-# ── Bibliothèques ────────────────────────────────────────────
-library(FactoMineR)  # Analyse en Composantes Principales (ACP)
-library(factoextra)  # Visualisation des résultats ACP
-library(corrplot)    # Visualisation de la matrice de corrélation
-library(ggplot2)     # Graphiques avancés (grammaire des graphiques)
-library(dplyr)       # Manipulation et transformation des données
-library(tidyr)       # Restructuration des tableaux (pivot)
-library(knitr)       # Génération de tableaux dans le document
-library(kableExtra)  # Mise en forme avancée des tableaux LaTeX
+# ════════════════════════════════════════════════════════════
+# PACKAGES UTILISÉS — Rôle de chaque bibliothèque
+# ════════════════════════════════════════════════════════════
 
-# ── Chargement des données ───────────────────────────────────
-# Chemin relatif depuis beamer/ vers data/ (niveau projet)
+# FactoMineR : package pour l'Analyse en Composantes Principales (ACP).
+#   Fournit la fonction PCA() qui calcule les axes, valeurs propres,
+#   coordonnées des individus (régions) et des variables (indicateurs).
+library(FactoMineR)
+
+# factoextra : package de visualisation des résultats de FactoMineR.
+#   Fournit fviz_eig() pour le screeplot et fviz_pca_biplot() pour le biplot.
+#   Produit des graphiques ggplot2, donc personnalisables avec theme().
+library(factoextra)
+
+# corrplot : package spécialisé pour visualiser les matrices de corrélation.
+#   La fonction corrplot() dessine une heatmap colorée avec options
+#   de forme (cercles, carrés, couleurs), de tri, et de labellisation.
+library(corrplot)
+
+# ggplot2 : package de référence pour les graphiques en R (grammaire des graphiques).
+#   Utilisé pour le graphique de comparaison des méthodes de normalisation.
+#   Principe : on construit le graphique couche par couche (aes, geom, scale, theme).
+library(ggplot2)
+
+# dplyr : package de manipulation de tableaux (partie du tidyverse).
+#   Utilisé ici via l'opérateur pipe %>% et la fonction mutate() pour
+#   transformer les colonnes d'un data.frame de façon lisible.
+library(dplyr)
+
+# tidyr : package de restructuration des tableaux (partie du tidyverse).
+#   La fonction pivot_longer() transforme un tableau "large" (une colonne
+#   par méthode) en tableau "long" (une ligne par observation × méthode),
+#   format requis par ggplot2 pour tracer plusieurs séries sur un même graphique.
+library(tidyr)
+
+# knitr : package de génération de documents R Markdown.
+#   La fonction kable() produit des tableaux formatés en LaTeX (ou HTML).
+#   Ici utilisé pour les tableaux des dimensions ACP et des corrélations de Spearman.
+library(knitr)
+
+# kableExtra : extension de knitr pour la mise en forme avancée des tableaux.
+#   Fournit kable_styling() (taille, position) et column_spec() (largeur colonne).
+#   Indispensable pour contrôler la mise en page LaTeX des tableaux dans Beamer.
+library(kableExtra)
+
+# ════════════════════════════════════════════════════════════
+# CHARGEMENT DES DONNÉES
+# ════════════════════════════════════════════════════════════
+
+# Lecture du fichier CSV (chemin relatif : de beamer/ on remonte au projet avec ../)
+# stringsAsFactors = FALSE : les colonnes texte restent en character, pas en factor
 data_raw <- read.csv("../data/donnees_regions.csv", stringsAsFactors = FALSE)
-regions  <- data_raw$region          # Vecteur des 14 noms de régions
-data_num <- data_raw[, names(data_raw) != "region"]  # Indicateurs seuls (sans noms)
 
-# ── Orientation des indicateurs ──────────────────────────────
-# Certains indicateurs sont "négatifs" : une valeur élevée = mauvais résultat.
-# On les multiplie par -1 pour que : valeur élevée => bon score (cohérence).
-ind_inv <- c("tx_mort_inf","tx_pauvrete","tx_chomage","emploi_inform","tx_fecondite")
-data_orient <- data_num
-data_orient[ind_inv] <- -data_orient[ind_inv]
+# Séparation : noms des 14 régions (colonne "region") vs indicateurs numériques
+regions  <- data_raw$region                              # Vecteur de 14 noms
+data_num <- data_raw[, names(data_raw) != "region"]     # data.frame 14×23 (chiffres seuls)
 
-# ── Normalisation (3 méthodes) ───────────────────────────────
-minmax  <- function(x) (x - min(x,na.rm=T)) / (max(x,na.rm=T) - min(x,na.rm=T))
-zscore  <- function(x) (x - mean(x,na.rm=T)) / sd(x,na.rm=T)
+# ════════════════════════════════════════════════════════════
+# ÉTAPE PRÉALABLE : ORIENTATION DES INDICATEURS
+# ════════════════════════════════════════════════════════════
+# Problème : certains indicateurs ont un sens inversé.
+#   Ex. : mortalité infantile élevée = MAUVAISE situation.
+#   Or on veut que "valeur élevée = bon score" pour TOUS les indicateurs.
+# Solution : multiplier ces indicateurs par -1 avant toute normalisation.
+# Les 5 indicateurs "négatifs" identifiés :
+ind_inv <- c("tx_mort_inf",    # Taux de mortalité infantile (pour 1000)
+             "tx_pauvrete",    # Taux de pauvreté (%)
+             "tx_chomage",     # Taux de chômage (%)
+             "emploi_inform",  # Part de l'emploi informel (%)
+             "tx_fecondite")   # Indice synthétique de fécondité
+
+data_orient <- data_num                         # Copie des données originales
+data_orient[ind_inv] <- -data_orient[ind_inv]   # Inversion signe sur ces 5 colonnes
+
+# ════════════════════════════════════════════════════════════
+# ÉTAPE 2 : NORMALISATION — 3 MÉTHODES
+# ════════════════════════════════════════════════════════════
+# But : mettre tous les indicateurs sur la même échelle avant de les combiner.
+# On définit 3 fonctions, une par méthode. lapply() les applique à chaque colonne.
+
+# Min-Max : ramène chaque valeur dans [0, 1]
+#   Formule : x* = (x - min) / (max - min)
+#   Avantage : intuitif, directement interprétable.
+#   Limite : très sensible aux valeurs extrêmes (Dakar tire l'échelle vers le haut).
+minmax  <- function(x) (x - min(x, na.rm=TRUE)) / (max(x, na.rm=TRUE) - min(x, na.rm=TRUE))
+
+# Z-score : centre et réduit chaque indicateur (moyenne=0, écart-type=1)
+#   Formule : z = (x - moyenne) / écart-type
+#   Avantage : robuste aux extrêmes, recommandé pour l'ACP.
+#   Limite : peut produire des valeurs négatives (moins intuitif).
+zscore  <- function(x) (x - mean(x, na.rm=TRUE)) / sd(x, na.rm=TRUE)
+
+# Centile (rang relatif) : remplace chaque valeur par son rang divisé par n
+#   Formule : c = rang(x) / n
+#   ties.method="average" : en cas d'ex-aequo, on attribue le rang moyen.
+#   Avantage : très robuste, élimine l'effet des extrêmes.
+#   Limite : perd l'amplitude des écarts entre régions.
 centile <- function(x) rank(x, ties.method="average", na.last="keep") / sum(!is.na(x))
 
-data_mm <- as.data.frame(lapply(data_orient, minmax))   # Min-Max -> [0, 1]
-data_zs <- as.data.frame(lapply(data_orient, zscore))   # Z-score -> centrée-réduite
-data_ct <- as.data.frame(lapply(data_orient, centile))  # Centile -> rang relatif
+# Application de chaque méthode à tous les indicateurs via lapply()
+data_mm <- as.data.frame(lapply(data_orient, minmax))   # Données Min-Max  → [0, 1]
+data_zs <- as.data.frame(lapply(data_orient, zscore))   # Données Z-score  → centrée-réduite
+data_ct <- as.data.frame(lapply(data_orient, centile))  # Données Centile  → rang relatif
 
-# Nommer les lignes avec les régions (indispensable pour le biplot ACP)
+# Attacher les noms de régions aux lignes (obligatoire pour le biplot ACP)
 rownames(data_mm) <- regions
 rownames(data_zs) <- regions
 rownames(data_ct) <- regions
 
-# ── ACP ──────────────────────────────────────────────────────
-# On applique l'ACP sur les données z-score (recommandé : indicateurs déjà normalisés)
-acp    <- PCA(data_zs, graph = FALSE, scale.unit = FALSE)
-ev     <- acp$eig         # Tableau des valeurs propres et variances
-n_axes <- sum(ev[,1] >= 1) # Critère de Kaiser : valeur propre >= 1
+# ════════════════════════════════════════════════════════════
+# ÉTAPE 3 : ACP — Analyse en Composantes Principales
+# Package : FactoMineR — fonction PCA()
+# ════════════════════════════════════════════════════════════
+# On utilise les données Z-score pour l'ACP (déjà normalisées → pas de double standardisation).
+# graph = FALSE : ne pas tracer les graphiques par défaut (on les fera avec factoextra).
+# scale.unit = FALSE : ne pas ré-standardiser en interne (on a déjà fait le Z-score).
+acp <- PCA(data_zs, graph = FALSE, scale.unit = FALSE)
 
-# ── Construction des 3 indices ───────────────────────────────
-# INDICE 1 : Équipondération (poids identiques pour tous les indicateurs)
+# acp$eig : tableau des valeurs propres de chaque axe
+#   Colonne 1 = valeur propre (λ) — mesure la quantité d'information de l'axe
+#   Colonne 2 = % de variance expliquée par cet axe
+#   Colonne 3 = % de variance cumulée
+ev <- acp$eig
+
+# Critère de Kaiser : retenir les axes dont la valeur propre λ >= 1
+# (un axe doit expliquer au moins autant qu'un indicateur original)
+n_axes <- sum(ev[, 1] >= 1)
+
+# ════════════════════════════════════════════════════════════
+# ÉTAPE 4 : CONSTRUCTION DES 3 INDICES COMPOSITES
+# ════════════════════════════════════════════════════════════
+
+# --- INDICE 1 : Équipondération ---
+# Poids identiques pour tous les indicateurs : w_i = 1/23
+# rowMeans() calcule la moyenne de chaque ligne (= chaque région) sur les 23 colonnes.
 indice_equi <- rowMeans(data_mm)
 
-# INDICE 2 : Pondération ACP (poids = variance expliquée par chaque axe)
-pw <- ev[1:n_axes, 2] / sum(ev[1:n_axes, 2])  # Poids proportionnels à la variance
-cm <- as.data.frame(lapply(as.data.frame(acp$ind$coord[,1:n_axes]), minmax))
+# --- INDICE 2 : Pondération ACP ---
+# Les poids sont proportionnels à la part de variance expliquée par chaque axe retenu.
+# pw : vecteur de poids normalisés (somme = 1) pour les n_axes axes retenus
+pw <- ev[1:n_axes, 2] / sum(ev[1:n_axes, 2])
+
+# cm : coordonnées des régions sur les axes retenus, re-normalisées en [0,1]
+# acp$ind$coord : matrice des coordonnées des individus (régions) sur chaque axe
+cm <- as.data.frame(lapply(as.data.frame(acp$ind$coord[, 1:n_axes]), minmax))
+
+# Produit matriciel : coordonnées × poids = score ACP de chaque région
 indice_acp <- as.numeric(as.matrix(cm) %*% pw)
 
-# INDICE 3 : Pondération AHP par dimension thématique
-de    <- c("taux_alpha","taux_scol_prim","taux_scol_sec","ratio_eleves_maitre")
-ds    <- c("tx_mort_inf","acces_eau","acces_assain","centres_sante")
-do_v  <- c("tx_pauvrete","revenu_moy","tx_chomage","emploi_inform","pib_regional")
-di    <- c("acces_electr","densite_routiere","acces_internet","idh_subnational")
-dd    <- c("tx_fecondite","densite_pop","part_urbaine","tx_emploi_fem","surf_agri","secu_alim")
+# --- INDICE 3 : Pondération AHP (RETENU) ---
+# AHP = Analytic Hierarchy Process (Saaty, 1980).
+# On regroupe d'abord les indicateurs par dimension thématique,
+# puis on calcule un score moyen par dimension,
+# puis on combine les scores avec les poids AHP définis par jugement d'expert.
 
-se  <- rowMeans(data_mm[, de])   # Score Éducation
-ss  <- rowMeans(data_mm[, ds])   # Score Santé
-so  <- rowMeans(data_mm[, do_v]) # Score Économie
-si  <- rowMeans(data_mm[, di])   # Score Infrastructure
-sd2 <- rowMeans(data_mm[, dd])   # Score Démographie
+# Groupes d'indicateurs par dimension (noms = colonnes de data_mm)
+de   <- c("taux_alpha","taux_scol_prim","taux_scol_sec","ratio_eleves_maitre")  # Éducation (4)
+ds   <- c("tx_mort_inf","acces_eau","acces_assain","centres_sante")             # Santé (4)
+do_v <- c("tx_pauvrete","revenu_moy","tx_chomage","emploi_inform","pib_regional") # Économie (5)
+di   <- c("acces_electr","densite_routiere","acces_internet","idh_subnational") # Infrastructure (4)
+dd   <- c("tx_fecondite","densite_pop","part_urbaine","tx_emploi_fem","surf_agri","secu_alim") # Démographie (6)
 
-# Poids AHP : Éducation 25% | Économie 25% | Santé 20% | Infrastructure 20% | Démographie 10%
+# Score dimensionnel = moyenne équipondérée des indicateurs de la dimension
+# rowMeans() sur le sous-tableau data_mm[, vecteur_de_colonnes]
+se  <- rowMeans(data_mm[, de])    # Score Éducation    (vecteur de 14 valeurs)
+ss  <- rowMeans(data_mm[, ds])    # Score Santé
+so  <- rowMeans(data_mm[, do_v])  # Score Économie
+si  <- rowMeans(data_mm[, di])    # Score Infrastructure
+sd2 <- rowMeans(data_mm[, dd])    # Score Démographie
+
+# Combinaison linéaire avec poids AHP :
+#   Éducation 25% + Économie 25% + Santé 20% + Infrastructure 20% + Démographie 10%
+# Ces poids reflètent les priorités des politiques publiques sénégalaises
+# et ont été testés en analyse de sensibilité (étape 5).
 indice_ahp <- 0.25*se + 0.25*so + 0.20*ss + 0.20*si + 0.10*sd2
 
-# ── Classements ──────────────────────────────────────────────
-re  <- rank(-indice_equi)   # Rang 1 = meilleur score
-ra  <- rank(-indice_acp)
-rh  <- rank(-indice_ahp)
-res <- data.frame(region=regions, score=round(indice_ahp,3),
-                  rang_equi=re, rang_acp=ra, rang_ahp=rh)
+# ════════════════════════════════════════════════════════════
+# CLASSEMENTS DES 14 RÉGIONS
+# ════════════════════════════════════════════════════════════
+# rank(-x) : on inverse le signe pour que rang 1 = score le plus ÉLEVÉ (meilleure région)
+re <- rank(-indice_equi)   # Classement selon l'indice équipondéré
+ra <- rank(-indice_acp)    # Classement selon l'indice ACP
+rh <- rank(-indice_ahp)    # Classement selon l'indice AHP
 
-# ── Corrélations de Spearman (mesure de robustesse) ─────────
-rho_ea <- round(cor(re, ra, method="spearman"), 3)
-rho_eh <- round(cor(re, rh, method="spearman"), 3)
-rho_ah <- round(cor(ra, rh, method="spearman"), 3)
+# Tableau récapitulatif des scores et rangs pour les 14 régions
+res <- data.frame(
+  region   = regions,
+  score    = round(indice_ahp, 3),  # Score AHP arrondi à 3 décimales
+  rang_equi = re,
+  rang_acp  = ra,
+  rang_ahp  = rh
+)
 
-# ── Palette de couleurs inspirée du Sénégal ──────────────────
-CV <- "#B92346"   # Rose framboise principal
-C2 <- "#E16482"   # Rose vif clair
-C3 <- "#DA9B19"   # Or chaud
-C4 <- "#5F0A1E"   # Bordeaux foncé (texte)
-C5 <- "#CD8296"   # Rose moyen doux
+# ════════════════════════════════════════════════════════════
+# ÉTAPE 5 : CORRÉLATIONS DE SPEARMAN — Mesure de robustesse
+# Fonction de base R : cor(..., method = "spearman")
+# ════════════════════════════════════════════════════════════
+# Le rho de Spearman mesure la concordance entre deux vecteurs de rangs.
+#   rho = 1  → classements parfaitement identiques
+#   rho = 0  → aucune relation entre les classements
+#   rho = -1 → classements parfaitement inversés
+# On compare les classements 2 à 2 pour tester si le choix de pondération
+# influence significativement le résultat final.
+rho_ea <- round(cor(re, ra, method = "spearman"), 3)  # Équipondération vs ACP
+rho_eh <- round(cor(re, rh, method = "spearman"), 3)  # Équipondération vs AHP
+rho_ah <- round(cor(ra, rh, method = "spearman"), 3)  # ACP vs AHP
+
+# ════════════════════════════════════════════════════════════
+# PALETTE DE COULEURS — Cohérence visuelle de toute la présentation
+# ════════════════════════════════════════════════════════════
+# Ces couleurs sont réutilisées dans tous les graphiques pour maintenir
+# une identité visuelle cohérente avec la charte rose/or du thème Beamer.
+CV <- "#B92346"   # Rose framboise principal  — couleur dominante
+C2 <- "#E16482"   # Rose vif clair            — accent secondaire
+C3 <- "#DA9B19"   # Or chaud                  — contraste complémentaire
+C4 <- "#5F0A1E"   # Bordeaux foncé            — textes et labels
+C5 <- "#CD8296"   # Rose moyen doux           — éléments discrets
 ```
 
 ## Plan de l'exposé
@@ -135,25 +275,22 @@ C5 <- "#CD8296"   # Rose moyen doux
 
 \begin{block}{Indicateur}
 \small
-Mesure chiffrée d'un aspect du développement. \textit{Ex.} : taux d'alphabétisation (\%), mortalité infantile (pour 1000), PIB régional (milliards FCFA).
+Mesure chiffrée d'un aspect du développement. \textit{Ex.} : taux d'alphabétisation (\%), mortalité infantile (pour 1000), PIB régional (Mds FCFA).
 \end{block}
 
-\vspace{0.15em}
+\vspace{0.10em}
 
 \begin{block}{Indice composite}
 \small
-Score unique qui \textbf{combine plusieurs indicateurs} en un seul chiffre pour résumer une situation multidimensionnelle.
-\textcolor{VClair}{\textbf{Exemples :}}
-\textbf{IDH} (PNUD) — Éducation + Santé + Revenus \textbullet{}
-\textbf{Doing Business} (Banque Mondiale) \textbullet{}
-\textbf{IDISA} — Inégalités de genre en Afrique
+Score unique qui \textbf{combine plusieurs indicateurs} en un seul chiffre.
+\textcolor{VClair}{\textbf{Ex. :}} \textbf{IDH} (PNUD) $\cdot$ \textbf{Doing Business} (BM) $\cdot$ \textbf{IDISA} (genre, Afrique)
 \end{block}
 
-\vspace{0.15em}
+\vspace{0.10em}
 
 \begin{block}{Normalisation}
 \small
-Mise à la \textbf{même échelle} de tous les indicateurs pour les rendre comparables et additionnables. \textit{Pourquoi ?} Un PIB en milliards et un taux en \% ne peuvent pas être additionnés tels quels.
+Mise à la \textbf{même échelle} de tous les indicateurs. Un PIB en milliards et un taux en \% ne peuvent pas être additionnés tels quels.
 \end{block}
 
 ## Glossaire — Méthodes statistiques
@@ -202,138 +339,181 @@ Classement \textbf{stable} quel que soit le choix méthodologique retenu.
 Construire un \textbf{indice composite de développement local} pour les 14 régions du Sénégal et évaluer sa robustesse aux choix méthodologiques.
 \end{alertblock}
 
-\vspace{0.5em}
+\vspace{0.3em}
 
 \begin{block}{Objectifs spécifiques}
-\begin{enumerate}
+\small
+\begin{enumerate}\setlength{\itemsep}{1pt}
   \item \textbf{Auditer} les 23 indicateurs : qualité, redondances, valeurs manquantes
   \item \textbf{Comparer} 3 méthodes de normalisation (Min-Max, Z-score, Centile)
-  \item \textbf{Identifier} les dimensions latentes du développement via l'ACP
+  \item \textbf{Identifier} les dimensions latentes via l'ACP
   \item \textbf{Construire} 3 indices avec des systèmes de pondération différents
-  \item \textbf{Tester} la robustesse via l'analyse de sensibilité (corrélation de Spearman)
+  \item \textbf{Tester} la robustesse via la corrélation de Spearman
 \end{enumerate}
 \end{block}
 
-\vspace{0.3em}
+\vspace{0.2em}
 
 \begin{exampleblock}{À retenir}
 \small
-Ce travail ne produit pas des statistiques officielles : il \textbf{teste une méthode} et examine dans quelle mesure les résultats en dépendent.
+Ce travail \textbf{teste une méthode} et examine dans quelle mesure les résultats en dépendent.
 \end{exampleblock}
 
-## Problématique de recherche
-
-\begin{exampleblock}{Contexte}
-\small
-Le Sénégal présente des inégalités régionales fortes. \textbf{Dakar $\approx$ 55\% du PIB} sur 0,3\% du territoire — IDH national : \textbf{0,51} (rang 168/193, PNUD 2023) — Pauvreté : \textbf{37,8\%} (EHCVM 2021).
-\end{exampleblock}
-
-\vspace{0.15em}
-
-\begin{alertblock}{Le problème}
-\small
-Pour orienter les investissements publics, il faut \textbf{classer objectivement} les 14 régions. Mais tout indice repose sur des \textbf{choix méthodologiques} (normalisation, pondération) qui peuvent influencer le classement et les décisions politiques.
-\end{alertblock}
-
-\vspace{0.15em}
-
-\begin{block}{\centering Question centrale}
-\centering\normalsize
-\textit{Le classement des 14 régions dépend-il des \textbf{choix méthodologiques} ou de la réalité socioéconomique ?}
-\end{block}
-
-# Contexte \& Données
-
-## Inégalités régionales au Sénégal
+## Contexte — Inégalités régionales au Sénégal
 
 \begin{columns}
 \begin{column}{0.52\textwidth}
-\begin{block}{Portrait des inégalités}
+\begin{block}{Le Sénégal en chiffres clés}
 \footnotesize
-\begin{itemize}\setlength{\itemsep}{1pt}\setlength{\parsep}{0pt}
-  \item \textbf{14 régions} aux profils très contrastés
-  \item Dakar : \textbf{55\% du PIB} sur 0,3\% du territoire
-  \item Kédougou : riche en or, mais IDH le plus faible
-  \item \textbf{Sud-Est} (Kolda, Sédhiou) systématiquement défavorisé
+\begin{itemize}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}
+  \item \textbf{IDH : 0,51} — rang 168/193 (PNUD 2023)
+  \item Pauvreté : \textbf{37,8\%} (EHCVM 2021)
+  \item Dakar : \textbf{55\% du PIB} sur \textbf{0,3\%} du territoire
+  \item Kédougou : riche en or, \textbf{IDH le plus faible}
   \item Pauvreté rurale : \textbf{57,3\%} vs 26,1\% urbain
+  \item Gradient \textbf{Nord-Ouest / Sud-Est} persistant
 \end{itemize}
 \end{block}
-\vspace{0.10em}
-\begin{alertblock}{Un gradient persistant}
+\vspace{0.08em}
+\begin{alertblock}{Un déséquilibre structurel}
 \footnotesize
-Inégalité Nord-Ouest / Sud-Est \textbf{structurelle} : déficit d'investissement public, pas un manque de ressources.
+\textbf{Déficit d'investissement} sur certaines régions — pas un manque de ressources.
 \end{alertblock}
 \end{column}
 \begin{column}{0.44\textwidth}
 \begin{exampleblock}{Pourquoi un indice composite ?}
-\small
-Un seul indicateur est insuffisant :
-\begin{itemize}\setlength{\itemsep}{1pt}
-  \item Alphabétisation seul : néglige la santé
-  \item PIB seul : masque la distribution
-  \item IDH : ignore l'infrastructure
-\end{itemize}
-$\Rightarrow$ \textbf{23 indicateurs} en 5 dimensions.
+\footnotesize
+Un seul indicateur ne suffit pas :\\[1pt]
+$\bullet$ Alphabétisation : oublie la santé\\
+$\bullet$ PIB : masque la distribution\\
+$\bullet$ IDH officiel : ignore l'infrastructure\\[4pt]
+$\Rightarrow$ \textbf{23 indicateurs} en 5 dimensions pour une mesure globale et comparable.
 \end{exampleblock}
 \end{column}
 \end{columns}
 
+## Problème \& Question centrale
+
+\begin{alertblock}{Le problème}
+\normalsize
+Pour orienter les investissements publics, il faut \textbf{classer objectivement} les 14 régions. Or tout indice repose sur des \textbf{choix méthodologiques} susceptibles de modifier le classement.
+\end{alertblock}
+
+\vspace{0.35em}
+
+\begin{block}{\centering Question centrale}
+\centering\large
+\textit{Le classement dépend-il des \textbf{choix méthodologiques} ou reflète-t-il la réalité ?}
+\end{block}
+
+\vspace{0.3em}
+
+\begin{exampleblock}{Enjeu concret}
+\small
+Si le classement varie selon la méthode, c'est le statisticien — et non les faits — qui oriente la politique publique.
+\end{exampleblock}
+
+# Les données
+
 ## Les données : 23 indicateurs, 14 régions, 5 sources
 
-```{r tab-dim, fig.height=2.8, out.width="96%"}
+```{r tab-dim, fig.height=1.85, out.width="94%"}
+# ── GRAPHIQUE : Répartition des indicateurs par dimension ────
+# Package utilisé : GRAPHIQUES DE BASE R (pas de package externe)
+# Fonction : barplot() — diagramme en barres horizontales
+
+# Construction du tableau de données à visualiser
 dims <- data.frame(
-  Dimension   = c("Éducation (25%)","Économie (25%)","Santé (20%)","Infrastructure (20%)","Démographie (10%)"),
-  N_ind       = c(4, 5, 4, 4, 6),
-  Exemples    = c("Alphabétisation, scolarisation","PIB, pauvreté, emploi",
-                  "Mortalité infantile, eau","Électricité, routes, internet",
-                  "Fécondité, urbanisation"),
-  Couleur     = c(CV, C3, C2, "#B8860B", C5)
+  Dimension = c("Éducation (25%)","Économie (25%)","Santé (20%)",
+                "Infrastructure (20%)","Démographie (10%)"),
+  N_ind     = c(4, 5, 4, 4, 6),               # Nombre d'indicateurs par dimension
+  Exemples  = c("Alphabétisation, scolarisation","PIB, pauvreté, emploi",
+                "Mortalité infantile, eau","Électricité, routes, internet",
+                "Fécondité, urbanisation"),
+  Couleur   = c(CV, C3, C2, C4, C5)           # Une couleur par dimension (palette globale)
 )
-par(mar=c(3.5, 9.5, 1.5, 1), bg="#FDF6E3")
+
+# par() : configure les paramètres graphiques avant le tracé
+#   mar = c(bas, gauche, haut, droite) en lignes de texte
+#   Marges larges à gauche (9.5) pour les étiquettes des dimensions
+#   bg : couleur de fond (crème, cohérente avec le thème Beamer)
+par(mar=c(3.0, 9.5, 1.5, 1), bg="#FDF6E3")
+
+# barplot() : diagramme en barres
+#   horiz=TRUE : barres horizontales (plus lisibles pour des noms longs)
+#   las=1 : étiquettes de l'axe Y en mode horizontal
+#   border=NA : pas de bordure sur les barres (aspect épuré)
+#   xlim : fixe l'axe X jusqu'à 9 pour laisser de la place aux annotations
+#   bp : objet retourné = positions verticales de chaque barre (utile pour text())
 bp <- barplot(dims$N_ind, names.arg=dims$Dimension, horiz=TRUE, las=1,
               col=dims$Couleur, border=NA, xlim=c(0, 9),
-              cex.names=0.72, xlab="Nombre d'indicateurs",
-              main="Répartition des 23 indicateurs en 5 dimensions thématiques",
-              cex.main=0.88, cex.lab=0.8)
+              cex.names=0.70, xlab="Nombre d'indicateurs",
+              main="Répartition des 23 indicateurs par dimension thématique",
+              cex.main=0.85, cex.lab=0.78)
+
+# text() : ajoute les annotations textuelles sur le graphique
+#   Position X : juste après la fin de la barre (dims$N_ind + 0.15)
+#   Position Y : hauteur de chaque barre (bp renvoyé par barplot)
+#   adj=0 : alignement à gauche du texte
 text(dims$N_ind + 0.15, bp, dims$Exemples, cex=0.52, col=C4, adj=0)
+
+# Deuxième ligne d'annotation : nombre d'indicateurs en italique (font=3)
+#   Légèrement décalée vers le bas (bp - 0.22) pour ne pas chevaucher la première ligne
 text(dims$N_ind + 0.15, bp - 0.22,
      paste0("(", dims$N_ind, " indicateurs)"),
      cex=0.50, col=C5, adj=0, font=3)
 ```
 
-\begin{center}\small
-\textbf{Sources :}
-\textcolor{VForet}{ANSD/RGPH 2023} $\cdot$
-\textcolor{VForet}{EHCVM 2021} $\cdot$
-\textcolor{Or}{IDH sous-national PNUD} $\cdot$
-\textcolor{Or}{Banque Mondiale DataBank} $\cdot$
-\textcolor{VClair}{OpenAfrica}
+\begin{columns}[t]
+\begin{column}{0.55\textwidth}
+\begin{exampleblock}{\small Pourquoi ces poids ?}
+\tiny
+Calibrés par \textbf{jugement d'expert (AHP, Saaty 1980)} : éducation/économie prioritaires au Sénégal ; démographie à 10\% (caractérise sans discriminer). Validés par analyse de sensibilité ($\rho_S>0{,}99$).
+\end{exampleblock}
+\end{column}
+\begin{column}{0.42\textwidth}
+\begin{center}\tiny
+\textbf{Sources :} ANSD/RGPH 2023 $\cdot$ EHCVM 2021\\
+PNUD $\cdot$ Banque Mondiale $\cdot$ OpenAfrica
 \end{center}
+\end{column}
+\end{columns}
 
-## Justification des données simulées
+## Construction \& Justification de la base de données
 
-\begin{alertblock}{Contexte de disponibilité}
-\small
-Les données régionales exhaustives ne sont pas toutes accessibles gratuitement au moment de ce travail. Le RGPH 2023 n'est que partiellement publié. Les microdonnées de l'EHCVM sont sous accès restreint.
+\begin{columns}
+\begin{column}{0.50\textwidth}
+\begin{alertblock}{\small Pourquoi des données simulées ?}
+\tiny
+Microdonnées régionales \textbf{non toutes publiques} : RGPH 2023 partiel, EHCVM accès restreint, IDH subnational agrégé.\\[2pt]
+$\Rightarrow$ Simulation \textbf{calibrée} sur rapports officiels (\texttt{set.seed(2026)}).
 \end{alertblock}
-
-\vspace{0.3em}
-
-\begin{block}{Garanties de réalisme}
-\small
-\begin{itemize}
-  \item Ordres de grandeur calés sur les \textbf{rapports officiels ANSD} disponibles
-  \item Le gradient \textbf{Nord-Ouest / Sud-Est} est respecté (documenté dans la littérature)
-  \item \textbf{Dakar} : meilleurs scores urbains — \textbf{Kédougou} : scores les plus faibles
-  \item Simulation \textbf{reproductible} et versionnée dans GitHub (fichier \texttt{donnees\_regions.csv})
-\end{itemize}
+\end{column}
+\begin{column}{0.47\textwidth}
+\begin{block}{\small Pipeline \texttt{construction\_base.R}}
+\tiny
+\begin{enumerate}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}
+  \item \textbf{Charge} 5 fichiers sources bruts
+  \item \textbf{Diagnostique} : NA, doublons, encodages
+  \item \textbf{Nettoie} : noms, unités, espaces
+  \item \textbf{Merge} progressif par clé \texttt{region}
+  \item \textbf{Sauvegarde} \texttt{donnees\_regions.csv}
+\end{enumerate}
 \end{block}
+\end{column}
+\end{columns}
 
-\vspace{0.3em}
+\vspace{0.18em}
 
-\begin{exampleblock}{Objectif pédagogique}
-\small
-Ce TP teste une \textbf{méthode}, pas des statistiques officielles. Les tendances sont réalistes et la robustesse reste valide.
+\begin{exampleblock}{\small 5 difficultés documentées dans le script}
+\tiny
+\begin{itemize}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}
+  \item \textbf{Noms} : \texttt{"Saint Louis"} $\to$ \texttt{"Saint-Louis"} ; \texttt{"Sedhiou"} $\to$ \texttt{"Sédhiou"} (ANSD)
+  \item \textbf{2 NA} : \texttt{revenu\_moy} manquant (Kaffrine, Sédhiou) — imputés par la médiane
+  \item \textbf{Doublon} : ligne Dakar en double dans la source Banque Mondiale
+  \item \textbf{Unité} : PIB en millions USD $\to$ milliards FCFA ($\times 600 \div 1000$)
+  \item \textbf{Préfixe} : \texttt{"Région de Dakar"} $\to$ \texttt{"Dakar"} (source PNUD)
+\end{itemize}
 \end{exampleblock}
 
 # Étape 1 — Audit des indicateurs
@@ -344,26 +524,26 @@ Ce TP teste une \textbf{méthode}, pas des statistiques officielles. Les tendanc
 \begin{column}{0.48\textwidth}
 \begin{alertblock}{3 risques sans audit}
 \small
-\begin{enumerate}
-  \item \textbf{Redondance :} si deux indicateurs mesurent la même chose, on la comptabilise deux fois (ex. IDH et alphabétisation)
-  \item \textbf{Données manquantes :} un indicateur incomplet biaise tous les calculs
-  \item \textbf{Faible discrimination :} si toutes les régions ont la même valeur, l'indicateur n'apporte aucune information
+\begin{enumerate}\setlength{\itemsep}{2pt}
+  \item \textbf{Redondance :} double comptage (ex. IDH + alphabétisation)
+  \item \textbf{Données manquantes :} biais tous les calculs
+  \item \textbf{Faible discrimination :} indicateur quasi-constant $\Rightarrow$ nul
 \end{enumerate}
 \end{alertblock}
 \end{column}
 \begin{column}{0.48\textwidth}
-\begin{block}{3 outils d'audit utilisés}
+\begin{block}{3 outils d'audit}
 \small
-\begin{enumerate}
-  \item \textbf{Taux de valeurs manquantes} — seuil d'exclusion : $>20\%$
-  \item \textbf{Coefficient de variation (CV)} — seuil d'exclusion : $<5\%$ (indicateur quasi-constant)
-  \item \textbf{Corrélation de Pearson} — seuil de redondance : $|r| > 0{,}95$
+\begin{enumerate}\setlength{\itemsep}{2pt}
+  \item Taux de valeurs manquantes — seuil $>20\%$
+  \item Coefficient de variation (CV) — seuil $<5\%$
+  \item Corrélation de Pearson — seuil $|r|>0{,}95$
 \end{enumerate}
 \end{block}
-\vspace{0.3em}
+\vspace{0.2em}
 \begin{exampleblock}{Résultat}
 \small
-\textbf{0} valeur manquante $|$ \textbf{0} paire redondante\\
+\textbf{0} valeur manquante $\;|\;$ \textbf{0} paire redondante\\
 $\Rightarrow$ Les \textbf{23 indicateurs} sont conservés.
 \end{exampleblock}
 \end{column}
@@ -371,19 +551,44 @@ $\Rightarrow$ Les \textbf{23 indicateurs} sont conservés.
 
 ## Matrice de corrélation — Audit de redondance
 
-```{r fig-corr, fig.height=2.4, out.width="84%"}
-corrplot(cor(data_num, use="pairwise.complete.obs"),
-  method = "color", type = "upper",
-  tl.cex = 0.44, tl.col = C4,
-  col    = colorRampPalette(c("#8C1428","white",CV))(200),
-  mar    = c(0, 0, 0.8, 0), cl.cex = 0.52,
+```{r fig-corr, fig.height=2.65, out.width="97%"}
+# ── GRAPHIQUE : Matrice de corrélation — Audit de redondance ─
+# Package utilisé : corrplot — fonction corrplot()
+# Objectif : visualiser les corrélations entre les 23 indicateurs
+#   pour détecter des paires redondantes (|r| > 0.95).
+
+# Étape 1 : calculer la matrice de corrélation de Pearson
+#   cor() : fonction de base R
+#   use="pairwise.complete.obs" : traite les NA par paire (robuste aux données manquantes)
+#   data_num : données BRUTES non orientées (on veut voir les corrélations réelles)
+mat_cor <- cor(data_num, use = "pairwise.complete.obs")
+
+# Étape 2 : visualiser avec corrplot()
+#   method = "color" : cellules colorées (heatmap) — plus lisible qu'une matrice de chiffres
+#   type = "upper"   : afficher seulement le triangle supérieur (évite la redondance)
+#   tl.cex / tl.col  : taille et couleur des étiquettes des variables
+#   col = colorRampPalette(...)(200) : dégradé bleu → blanc → rose
+#     - bleu foncé  = corrélation POSITIVE forte
+#     - blanc       = pas de corrélation
+#     - rose foncé  = corrélation NÉGATIVE forte
+#   addgrid.col = "white" : grille blanche pour séparer les cellules
+#   cl.cex : taille du texte de la légende (color legend)
+corrplot(mat_cor,
+  method      = "color",
+  type        = "upper",
+  tl.cex      = 0.42,
+  tl.col      = C4,
+  col         = colorRampPalette(c("#2166AC", "white", CV))(200),
+  mar         = c(0, 0, 1.8, 0),
+  cl.cex      = 0.50,
   addgrid.col = "white",
-  title  = "Matrice de corrélation des 23 indicateurs", cex.main=0.75)
+  title       = "Matrice de corrélation des 23 indicateurs",
+  cex.main    = 0.80)
 ```
 
 \begin{exampleblock}{\small Interprétation}
 \small
-Les \textbf{blocs rouges} révèlent des corrélations positives attendues au sein de chaque dimension (ex. éducation + IDH). Aucune paire n'atteint $|r| > 0{,}95$ : \textbf{pas de redondance critique}. Les indicateurs de différentes dimensions sont peu corrélés (blanc) : chaque dimension apporte une information distincte.
+Les blocs roses confirment la cohérence interne de chaque dimension. Aucune paire ne dépasse $|r|=0{,}95$ : les 23 indicateurs mesurent des réalités \textbf{distinctes} et sont tous conservés pour la construction de l'indice.
 \end{exampleblock}
 
 # Étape 2 — Normalisation
@@ -421,45 +626,78 @@ $$c = \frac{\text{rang}(x)}{n}$$
 \end{column}
 \end{columns}
 
-\vspace{0.4em}
-\begin{alertblock}{\small Étape préalable obligatoire : orientation des indicateurs}
+\vspace{0.25em}
+\begin{alertblock}{\small Étape préalable : orientation des indicateurs}
 \small
-\textbf{5 indicateurs} ont un sens négatif (valeur élevée = mauvais résultat) : \texttt{mortalité infantile, pauvreté, chômage, emploi informel, fécondité}. Ils sont multipliés par $-1$ avant normalisation pour que "score élevé = bonne situation" soit universel.
+\textbf{5 indicateurs négatifs} (valeur élevée = mauvais) : mortalité, pauvreté, chômage, emploi informel, fécondité. Multipliés par $-1$ pour que "score élevé = bonne situation" soit universel.
 \end{alertblock}
 
 ## Impact des méthodes sur le classement
 
-```{r fig-norm, fig.height=2.3, out.width="95%"}
-idx_mm <- rowMeans(data_mm)
-idx_zs_raw <- rowMeans(data_zs)
-idx_zs <- (idx_zs_raw - min(idx_zs_raw)) / (max(idx_zs_raw) - min(idx_zs_raw))
-idx_ct <- rowMeans(data_ct)
+```{r fig-norm, fig.height=1.95, out.width="95%"}
+# ── GRAPHIQUE : Comparaison des 3 méthodes de normalisation ──
+# Packages utilisés : dplyr (mutate, pipe %>%), tidyr (pivot_longer), ggplot2 (ggplot)
+# Objectif : montrer que les 3 méthodes produisent des classements quasi-identiques.
 
+# Calcul des indices équipondérés pour chaque méthode de normalisation
+# rowMeans() appliqué aux 3 tableaux normalisés (23 colonnes chacun)
+idx_mm     <- rowMeans(data_mm)   # Index Min-Max (déjà dans [0, 1])
+idx_zs_raw <- rowMeans(data_zs)   # Index Z-score (peut être négatif → à re-normaliser)
+idx_ct     <- rowMeans(data_ct)   # Index Centile (déjà dans [0, 1])
+
+# Le Z-score produit des valeurs négatives → on le re-ramène dans [0,1] via Min-Max
+# pour le rendre comparable aux deux autres indices sur le même graphique
+idx_zs <- (idx_zs_raw - min(idx_zs_raw)) / (max(idx_zs_raw) - min(idx_zs_raw))
+
+# Construction du tableau "large" (une colonne par méthode)
 comp_df <- data.frame(
-  region = regions,
-  MinMax = round(idx_mm, 3),
-  Zscore = round(idx_zs, 3),
+  region  = regions,
+  MinMax  = round(idx_mm, 3),
+  Zscore  = round(idx_zs, 3),
   Centile = round(idx_ct, 3)
 ) %>%
-  pivot_longer(-region, names_to="Methode", values_to="Score") %>%
-  mutate(region = factor(region, levels=regions[order(idx_mm, decreasing=TRUE)]))
+  # pivot_longer() (tidyr) : transforme de "large" en "long"
+  # Avant : 14 lignes × 3 colonnes (MinMax, Zscore, Centile)
+  # Après : 42 lignes × 2 colonnes (Methode, Score) — requis par ggplot2
+  pivot_longer(-region, names_to = "Methode", values_to = "Score") %>%
+  # mutate() (dplyr) : transforme la colonne region en factor ordonné par score Min-Max
+  # Cela fixe l'ordre des régions sur l'axe X (de la plus développée à la moins développée)
+  mutate(region = factor(region, levels = regions[order(idx_mm, decreasing = TRUE)]))
 
-ggplot(comp_df, aes(x=region, y=Score, color=Methode, group=Methode)) +
-  geom_line(linewidth=1.0, alpha=0.85) +
-  geom_point(size=2.2) +
-  scale_color_manual(values=c("MinMax"=CV, "Zscore"=C3, "Centile"="#8C1428"),
-                     name="Méthode de normalisation") +
-  labs(title="Comparaison de l'impact des 3 méthodes de normalisation",
-       subtitle="Indice équipondéré — 14 régions du Sénégal (classées par score Min-Max décroissant)",
-       x=NULL, y="Score normalisé") +
-  theme_minimal(base_size=9) +
-  theme(axis.text.x=element_text(angle=45, hjust=1, size=7.5),
-        legend.position="top", plot.title=element_text(face="bold", size=10))
+# ggplot2 : construction du graphique en couches
+# aes() : mapping esthétique — X=régions, Y=score, couleur et groupe par méthode
+ggplot(comp_df, aes(x = region, y = Score, color = Methode, group = Methode)) +
+  # geom_line() : trace une ligne par méthode reliant les 14 régions
+  geom_line(linewidth = 1.0, alpha = 0.85) +
+  # geom_point() : ajoute un point sur chaque région pour chaque méthode
+  geom_point(size = 2.2) +
+  # scale_color_manual() : associe une couleur précise à chaque méthode
+  scale_color_manual(
+    values = c("MinMax" = CV, "Zscore" = C3, "Centile" = "#8C1428"),
+    name   = "Méthode de normalisation"
+  ) +
+  # labs() : titres et labels des axes
+  labs(
+    title    = "Impact des 3 méthodes de normalisation sur le classement",
+    subtitle = "Indice équipondéré — 14 régions (classées par score Min-Max décroissant)",
+    x = NULL,
+    y = "Score normalisé"
+  ) +
+  theme_minimal(base_size = 8) +
+  theme(
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 7.0),
+    legend.position  = "top",
+    legend.text      = element_text(size = 7),
+    legend.title     = element_text(size = 7.5),
+    legend.key.size  = unit(0.4, "cm"),
+    plot.title       = element_text(face = "bold", size = 9),
+    plot.subtitle    = element_text(size = 7.5)
+  )
 ```
 
 \begin{exampleblock}{\small Interprétation}
 \small
-Les trois courbes sont \textbf{quasi-superposées} : le choix de la méthode de normalisation ne change pas significativement le classement. Le signal est robuste. La Min-Max est retenue pour la suite car elle produit des scores directement interprétables entre 0 et 1.
+Les trois courbes sont quasi-superposées : le choix de normalisation \textbf{ne modifie pas} le classement des 14 régions. Ce signal robuste signifie que les disparités régionales au Sénégal sont suffisamment marquées pour s'imposer quelle que soit l'échelle. \textbf{Min-Max retenue} pour la suite (scores dans $[0,1]$, lisibles directement).
 \end{exampleblock}
 
 # Étape 3 — ACP
@@ -502,73 +740,194 @@ $n=14$ régions $\Rightarrow$ 13 axes max.\\L'ACP réduit efficacement la dimens
 
 ## Éboulis des valeurs propres — Combien d'axes retenir ?
 
-```{r fig-scree, fig.height=2.3, out.width="88%"}
-fviz_eig(acp, addlabels=TRUE, ylim=c(0, 80),
-  barfill=CV, barcolor=CV, linecolor=C3,
-  ggtheme=theme_minimal(base_size=10)) +
+```{r fig-scree, fig.height=2.0, out.width="88%"}
+# ── GRAPHIQUE : Éboulis des valeurs propres (Screeplot) ──────
+# Package utilisé : factoextra — fonction fviz_eig()
+# Objectif : visualiser la part de variance expliquée par chaque axe de l'ACP
+#   et décider combien d'axes retenir (critère de Kaiser : λ >= 1).
+
+# fviz_eig() (factoextra) : produit un graphique ggplot2 du screeplot
+#   acp       : l'objet ACP calculé avec FactoMineR::PCA()
+#   addlabels : affiche le % de variance sur chaque barre
+#   ylim      : limite l'axe Y à 80% (l'Axe 1 dominant dépasse rarement 80%)
+#   barfill / barcolor : couleur de remplissage et de bordure des barres
+#   linecolor  : couleur de la courbe cumulative superposée
+#   ggtheme    : thème de base ggplot2 appliqué (theme_minimal)
+fviz_eig(acp,
+  addlabels = TRUE,
+  ylim      = c(0, 80),
+  barfill   = CV,
+  barcolor  = CV,
+  linecolor = C3,
+  ggtheme   = theme_minimal(base_size = 9)
+) +
+  # labs() : mise à jour dynamique des titres
+  # paste0() construit le sous-titre en injectant les valeurs calculées :
+  #   n_axes = nombre d'axes retenus par Kaiser
+  #   ev[n_axes, 3] = % de variance cumulée des axes retenus
   labs(
-    title   = "Éboulis des valeurs propres (Screeplot)",
-    subtitle= paste0(n_axes, " axe(s) retenu(s) — ",
-                     round(ev[n_axes,3], 1), "% de variance cumulée expliquée"),
+    title    = "Éboulis des valeurs propres (Screeplot)",
+    subtitle = paste0(n_axes, " axe(s) retenu(s) — ",
+                      round(ev[n_axes, 3], 1), "% de variance cumulée expliquée"),
     x = "Composante principale",
     y = "Variance expliquée (%)"
   ) +
-  geom_hline(yintercept=0, linetype="dashed", color="#C0392B", linewidth=0.5) +
-  theme(plot.title    = element_text(color=C4, face="bold", size=11),
-        plot.subtitle = element_text(color=C5, size=8.5),
-        axis.title    = element_text(color=C4, size=9))
+  # geom_hline() : ligne horizontale de référence à y=0 (ligne de base)
+  geom_hline(yintercept = 0, linetype = "dashed", color = "#C0392B", linewidth = 0.5) +
+  # theme() : ajustements visuels finaux (couleurs, tailles des textes)
+  theme(
+    plot.title    = element_text(color = C4, face = "bold", size = 9.5),
+    plot.subtitle = element_text(color = C5, size = 8),
+    axis.title    = element_text(color = C4, size = 8.5)
+  )
 ```
 
-\begin{exampleblock}{\small Interprétation du screeplot}
+\begin{exampleblock}{\small Interprétation}
 \small
-L'Axe 1 capture à lui seul \textbf{environ 70-80\%} de la variance totale : c'est la \textbf{dimension dominante} du développement au Sénégal — un gradient global qui sépare les régions développées des régions défavorisées. Le "coude" prononcé après l'Axe 1 confirme que les axes suivants apportent beaucoup moins d'information. Les axes retenus (valeur propre $\geq 1$) expliquent ensemble $> 95\%$ de la variabilité.
+L'Axe 1 capte \textbf{$\sim$70--80\%} de la variance totale : il traduit le gradient global de développement qui sépare \textbf{Dakar} du reste du pays. Le coude prononcé après l'Axe 1 justifie le critère de Kaiser — \textbf{`r n_axes` axes retenus} couvrant $>95\%$ de l'information.
 \end{exampleblock}
 
 ## Biplot ACP — Régions et indicateurs ensemble
 
-```{r fig-biplot, fig.height=2.5, out.width="95%"}
-fviz_pca_biplot(acp, repel=TRUE,
-  col.var   = C3,
-  col.ind   = CV,
-  label     = "all",
-  ggtheme   = theme_minimal(base_size=8),
-  title     = "Biplot ACP — Régions (points verts) et indicateurs (flèches dorées)") +
-  theme(plot.title = element_text(color=C4, face="bold", size=9.5),
-        axis.title = element_text(color=C4, size=8.5))
+```{r fig-biplot, fig.height=2.1, out.width="95%"}
+# ── GRAPHIQUE : Biplot ACP ────────────────────────────────────
+# Package utilisé : factoextra — fonction fviz_pca_biplot()
+# Objectif : représenter simultanément dans le plan des 2 premiers axes ACP :
+#   - les RÉGIONS (individus) comme points colorés
+#   - les INDICATEURS (variables) comme flèches colorées
+# Lecture : une région à droite = développée ; une flèche longue vers la droite
+#   = cet indicateur contribue fortement au développement.
+
+# fviz_pca_biplot() (factoextra) :
+#   acp       : objet ACP issu de FactoMineR::PCA()
+#   repel=TRUE : évite le chevauchement des étiquettes (algorithmiquement)
+#   col.var   : couleur des flèches (indicateurs) → or
+#   col.ind   : couleur des points (régions) → rose
+#   label="all" : afficher les étiquettes pour individus ET variables
+#   ggtheme   : thème ggplot2 de base
+fviz_pca_biplot(acp,
+  repel   = TRUE,
+  col.var = C3,
+  col.ind = CV,
+  label   = "all",
+  ggtheme = theme_minimal(base_size = 7.5),
+  title   = "Biplot ACP — Régions (points) et indicateurs (flèches)"
+) +
+  theme(
+    plot.title = element_text(color = C4, face = "bold", size = 9),
+    axis.title = element_text(color = C4, size = 8)
+  )
 ```
 
-\begin{exampleblock}{\small Comment lire ce biplot ?}
+\begin{exampleblock}{\small Interprétation}
 \small
-\textbf{Points (régions) :} une région à droite sur l'Axe 1 = bien développée. À gauche = défavorisée.
-\textbf{Flèches (indicateurs) :} une longue flèche vers la droite = cet indicateur contribue fortement au développement. Dakar (extrême droite) est nettement isolée. Kédougou, Kolda, Sédhiou sont à l'opposé.
+\textbf{Dakar} est isolée à l'extrême droite de l'Axe 1 : son avance sur toutes les dimensions est structurelle. À l'opposé, \textbf{Kédougou, Kolda et Sédhiou} forment un groupe de régions défavorisées. Les flèches longues (électricité, revenu, éducation) identifient les indicateurs \textbf{structurants} du développement régional.
 \end{exampleblock}
 
 ## Dimensions latentes identifiées
 
+\begin{columns}[t]
+\begin{column}{0.38\textwidth}
+
 ```{r tab-dims}
+# ── TABLEAU GAUCHE : Statistiques des 3 axes retenus ─────────
+# Packages : knitr (kable) + kableExtra (kable_styling)
+# ev[1:3, 1] : valeurs propres | col.2 : % var. | col.3 : % cumulé
+# NOTE : pas de hold_position (float [H] incompatible avec colonnes Beamer)
 df_ax <- data.frame(
-  Axe   = c("Dim. 1","Dim. 2","Dim. 3"),
-  VP    = round(ev[1:3, 1], 2),
-  Var   = paste0(round(ev[1:3, 2], 1), "%"),
-  Cum   = paste0(round(ev[1:3, 3], 1), "%"),
-  Interp= c("Développement humain global (éducation + santé + revenus + accès services)",
-            "Infrastructure et connectivité (routes, internet, électricité)",
-            "Structure démographique (fécondité, urbanisation, emploi féminin)")
+  Axe  = c("Dim. 1", "Dim. 2", "Dim. 3"),
+  VP   = round(ev[1:3, 1], 2),
+  Var  = paste0(round(ev[1:3, 2], 1), "%"),
+  Cum  = paste0(round(ev[1:3, 3], 1), "%"),
+  Dom  = c("Hum.glob.", "Infra.", "Démo.")
 )
 kable(df_ax,
-  col.names = c("Axe", "Val. pr.", "Var.", "Cum.", "Interprétation"),
-  booktabs  = TRUE,
-  row.names = FALSE,
-  caption   = "Les 3 premiers axes de l'ACP") %>%
-  kable_styling(latex_options = c("scale_down","hold_position"),
-                font_size = 8) %>%
-  column_spec(5, width = "6.5cm")
+  col.names = c("Axe", "$\\lambda$", "Var.", "Cum.", "Thème"),
+  booktabs  = TRUE, row.names = FALSE, escape = FALSE
+) %>%
+  kable_styling(font_size = 7) %>%
+  column_spec(1, bold = TRUE, color = CV) %>%
+  column_spec(5, width = "1.4cm")
 ```
 
-\vspace{0.12em}
-\begin{exampleblock}{\small Message clé}
-\small
-L'\textbf{Axe 1} domine : le développement sénégalais est \textbf{unidimensionnel}. Les régions s'alignent de Dakar à Kédougou. Les Axes 2-3 révèlent des nuances : infrastructure vs revenus.
+\end{column}
+\begin{column}{0.03\textwidth}\end{column}
+\begin{column}{0.57\textwidth}
+
+```{r tab-contrib-dims, results='asis'}
+# ── TABLEAU DROITE : Contribution (%) de chaque dimension ────
+# APPROCHE : LaTeX direct via cat() + results='asis'
+# Raison : kableExtra cell_spec() génère \cellcolor[HTML]{...} qui n'est PAS
+# rendu par XeLaTeX Beamer (double-échappement des backslashes). On contourne
+# en écrivant le LaTeX manuellement → aucun intermédiaire, rendu garanti.
+#
+# acp$var$contrib : matrice (23 indicateurs × nb axes) des contributions (%).
+contrib <- acp$var$contrib
+
+dims_groupes <- list(
+  "Education"      = c("taux_alpha","taux_scol_prim","taux_scol_sec","ratio_eleves_maitre"),
+  "Sante"          = c("tx_mort_inf","acces_eau","acces_assain","centres_sante"),
+  "Economie"       = c("tx_pauvrete","revenu_moy","tx_chomage","emploi_inform","pib_regional"),
+  "Infrastructure" = c("acces_electr","densite_routiere","acces_internet","idh_subnational"),
+  "Demographie"    = c("tx_fecondite","densite_pop","part_urbaine","tx_emploi_fem",
+                       "surf_agri","secu_alim")
+)
+
+# contrib_mat : matrice 3 lignes (axes) × 5 colonnes (dimensions)
+# Chaque cellule = somme des contributions des indicateurs de la dimension à cet axe
+contrib_mat <- sapply(dims_groupes, function(vars) {
+  round(colSums(contrib[vars, 1:3]), 1)
+})
+
+# fmt_v() : formate une valeur v en LaTeX pur
+#   Gras + étoile si v ≥ 30% (contribution dominante)
+#   Italique si 15% ≤ v < 30% (contribution modérée)
+#   Texte simple sinon
+fmt_v <- function(v) {
+  pct <- paste0(v, "\\%")
+  if      (v >= 30) paste0("\\textbf{", pct, "}$^{\\star}$")
+  else if (v >= 15) paste0("\\textit{", pct, "}")
+  else              pct
+}
+
+dim_labels <- c("Éducation", "Santé", "Économie", "Infrastructure", "Démographie")
+dim_keys   <- colnames(contrib_mat)  # "Education", "Sante", "Economie", ...
+
+# ── Sortie LaTeX directe ─────────────────────────────────────
+# Le bloc cat() écrit dans le fichier .tex intermédiaire.
+# XeLaTeX exécute ensuite \textbf et \textit normalement.
+cat("\\vspace{0.15em}\n")
+cat("{\\tiny\n")
+cat("\\begin{tabular}{@{}lrrr@{}}\\toprule\n")
+cat("\\textbf{Dimension} & \\textbf{Axe 1} & \\textbf{Axe 2} & \\textbf{Axe 3}\\\\\n")
+cat("\\midrule\n")
+for (i in seq_along(dim_labels)) {
+  d1 <- contrib_mat[1, dim_keys[i]]
+  d2 <- contrib_mat[2, dim_keys[i]]
+  d3 <- contrib_mat[3, dim_keys[i]]
+  cat(paste0(dim_labels[i], " & ",
+             fmt_v(d1), " & ",
+             fmt_v(d2), " & ",
+             fmt_v(d3), "\\\\\n"))
+}
+cat("\\bottomrule\n")
+cat("\\end{tabular}\n")
+cat("\n\\vspace{2pt}\n")
+cat("{\\textbf{Gras}$^{\\star}$: dom. ($\\geq$30\\%) \\quad \\textit{Ital.}: mod. ($\\geq$15\\%)}\n")
+cat("}\n")
+```
+
+\end{column}
+\end{columns}
+
+\vspace{0.18em}
+\begin{exampleblock}{\small Interprétation des 3 dimensions latentes}
+\footnotesize
+\begin{itemize}\setlength{\itemsep}{1pt}\setlength{\parsep}{0pt}
+  \item \textbf{Dim.\,1 — Dév. humain} (\textasciitilde{}70--80\% variance) : sépare \textbf{Dakar/Thiès} (éducation, santé, revenus) du reste
+  \item \textbf{Dim.\,2 — Infrastructure} : oppose régions \textbf{bien desservies} (routes, internet) aux régions enclavées
+  \item \textbf{Dim.\,3 — Démographie} : distingue zones \textbf{jeunes/rurales} (fécondité, agriculture) des zones urbanisées
+\end{itemize}
 \end{exampleblock}
 
 # Étape 4 — Construction de l'indice
@@ -594,126 +953,278 @@ L'\textbf{Axe 1} domine : le développement sénégalais est \textbf{unidimensio
 \end{block}
 \end{column}
 \begin{column}{0.31\textwidth}
-\begin{block}{\centering\small Système 3}
+\begin{alertblock}{\centering\small Système 3 \textbf{— RETENU}}
 \centering\textbf{Pondération AHP}\\[5pt]
 \small Éduc/Éco~\textbf{25\%}\\Santé/Infra~\textbf{20\%}\\Démo~\textbf{10\%}\\[3pt]
-\textcolor{VClair}{\small Raisonnement par dimensions}\\[2pt]
-\textcolor{red}{\tiny Subjectif mais justifié}
-\end{block}
+\textcolor{OrClair}{\small Raisonnement par dimensions}\\[2pt]
+\textcolor{OrClair}{\tiny Subjectif mais justifié\\et testé en sensibilité}
+\end{alertblock}
 \end{column}
 \end{columns}
 
-\vspace{0.4em}
+\vspace{0.25em}
 \begin{alertblock}{\small Piège fondamental}
 \small
-L'équipondération \textit{semble} neutre, mais elle constitue en réalité un \textbf{choix politique implicite} : elle suppose que la mortalité infantile est aussi importante que la superficie agricole. Ce n'est pas une neutralité — c'est une décision qui mérite d'être explicitée et défendue.
+L'équipondération \textit{semble} neutre, mais c'est un \textbf{choix politique implicite} : mortalité infantile = superficie agricole ? Ce n'est pas une neutralité — c'est une décision à expliciter et défendre.
 \end{alertblock}
 
 ## Profil multidimensionnel des régions
 
-```{r fig-profil, fig.height=2.2, out.width="99%"}
+```{r fig-profil, fig.height=2.1, out.width="99%"}
+# ── GRAPHIQUE : Profil multidimensionnel des 14 régions ──────
+# Package utilisé : GRAPHIQUES DE BASE R (pas de package externe)
+# Objectif : afficher 14 mini-barplots (un par région) dans une grille 3×5,
+#   chacun montrant les scores dans les 5 dimensions, classés par rang AHP.
+
+# sd3 : matrice 14×5 des scores dimensionnels (se, ss, so, si, sd2)
+# cbind() assemble les 5 vecteurs scores en colonnes
 sd3 <- cbind(se, ss, so, si, sd2)
-oi  <- order(rh)
-cd  <- c(CV, C3, C2, "#B8860B", C5)
-par(mfrow=c(3,5), mar=c(0.3, 0.3, 1.5, 0.3), oma=c(2, 0, 0.5, 0), bg="#FDF6E3")
+
+# oi : ordre des régions selon le classement AHP (de la moins bonne à la meilleure)
+# order(rh) retourne les indices triés par rang croissant
+oi <- order(rh)
+
+# cd : palette de couleurs pour les 5 dimensions (une couleur par barre)
+cd <- c(CV, C3, C2, "#B8860B", C5)   # Éduc. | Santé | Écon. | Infra. | Démo.
+
+# par() : configure la grille de graphiques et les marges
+#   mfrow=c(3,5) : grille de 3 lignes × 5 colonnes = 15 cases (14 régions + 1 vide)
+#   mar          : marges individuelles très réduites (on veut des mini-graphiques)
+#   oma          : marges extérieures (outer) — réserve de la place en bas pour la légende
+#   bg           : couleur de fond uniforme crème
+par(mfrow = c(3, 5),
+    mar   = c(0.2, 0.2, 1.2, 0.2),
+    oma   = c(1.8, 0, 0.2, 0),
+    bg    = "#FDF6E3")
+
+# Boucle : un mini-barplot par région, dans l'ordre de classement AHP
+# i prend successivement les indices des régions du moins au plus développé
 for(i in oi){
-  barplot(sd3[i,], names.arg=rep("",5), col=cd, border=NA,
-          ylim=c(0, 1.15), main=regions[i], cex.main=0.58, space=0.25)
+  barplot(
+    sd3[i, ],                   # Vecteur de 5 scores pour la région i
+    names.arg = rep("", 5),     # Pas de label sous les barres (trop petit)
+    col       = cd,             # Une couleur par dimension
+    border    = NA,             # Pas de bordure
+    ylim      = c(0, 1.15),     # Axe Y fixe [0,1] + marge pour le titre
+    main      = regions[i],     # Nom de la région comme titre du mini-graphique
+    cex.main  = 0.58,           # Taille réduite du titre
+    space     = 0.25            # Espacement entre les barres
+  )
 }
-par(mfrow=c(1,1))
-mtext("Éduc. | Santé | Écon. | Infra. | Démo.",
-      side=1, line=0.6, cex=0.55, col=C5, outer=TRUE)
+
+# Panneau 15 (case vide) : légende colorée des 5 dimensions
+par(mar = c(0.2, 0.2, 0.6, 0.2))
+plot(0, type = "n", xaxt = "n", yaxt = "n", bty = "n",
+     xlab = "", ylab = "", main = "Légende", cex.main = 0.55)
+legend("center",
+  legend    = c("Éducation", "Santé", "Économie", "Infrastructure", "Démographie"),
+  fill      = cd,
+  border    = NA,
+  bty       = "n",
+  cex       = 0.48,
+  y.intersp = 0.85)
+
+# Réinitialiser la configuration graphique (revenir à 1 graphique par figure)
+par(mfrow = c(1, 1))
 ```
 
 \begin{exampleblock}{\small Interprétation}
 \small
-Profil de chaque région en 5 dimensions. Les premières régions (gauche) ont des barres hautes. Certaines ont un profil \textbf{déséquilibré} : forte démographie, faible économie — d'où la nécessité d'un indice composite.
+Chaque région présente un profil \textbf{déséquilibré} selon les 5 dimensions. \textbf{Kédougou}, riche en ressources minières, affiche un faible score économique — illustration du \textit{paradoxe des ressources}. Aucun indicateur seul ne suffit : l'indice composite agrège ces dimensions pour un classement \textbf{équitable}.
 \end{exampleblock}
 
 # Étape 5 — Analyse de sensibilité
 
 ## Stabilité des classements selon la méthode
 
-```{r fig-sensib, fig.height=2.4, out.width="88%"}
+```{r fig-sensib, fig.height=2.1, out.width="90%"}
+# ── GRAPHIQUE : Analyse de sensibilité — Stabilité des classements ─
+# Package utilisé : GRAPHIQUES DE BASE R (plot, lines, points, legend)
+# Objectif : visualiser comment le rang de chaque région évolue selon la méthode
+#   de pondération → une ligne horizontale = classement stable = indice robuste.
+
+# rm_mat : matrice 14×3 des rangs par méthode (colonnes = Équi, ACP, AHP)
+# cbind() assemble les 3 vecteurs de rangs en colonnes
 rm_mat <- cbind(re, ra, rh)
-cr <- colorRampPalette(c(C4, CV, C3, "#B8860B", C5))(14)
-par(mar=c(4.8, 4.0, 1.8, 8.5), xpd=TRUE, bg="#FDF6E3")
-plot(1:3, rm_mat[1,], type="n", xlim=c(0.8, 3.2), ylim=c(14.5, 0.5),
-     xaxt="n", yaxt="n",
-     xlab="Méthode de pondération", ylab="Rang (1 = meilleure région)",
-     cex.lab=0.82, main="Sensibilité du classement à la méthode de pondération", cex.main=0.90)
-rect(0.65, 0.3, 3.35, 14.7, col="#F7F0DC", border=NA)
-abline(h=1:14, col="white", lwd=0.7)
-axis(1, at=1:3, labels=c("Équipondération","ACP","AHP"), cex.axis=0.76)
-axis(2, at=1:14, las=1, cex.axis=0.70)
+
+# colorRampPalette() (grDevices, package de base) : crée un dégradé continu
+#   de 14 couleurs allant du vert foncé au rose — une couleur par région.
+#   Objectif : distinguer visuellement les 14 trajectoires sur le même graphique.
+cr <- colorRampPalette(
+  c("#264653","#2A9D8F","#57CC99","#80B918","#E9C46A","#F4A261","#E76F51","#B92346")
+)(14)
+
+# par() : paramètres graphiques
+#   mar : marge droite (8.5) très large pour la légende à l'extérieur du graphique
+#   xpd=TRUE : autorise le dessin en dehors de la zone de tracé (pour la légende)
+par(mar = c(4.2, 3.8, 1.8, 7.5), xpd = TRUE, bg = "#FDF6E3")
+
+# plot(..., type="n") : initialise un graphique VIDE avec les bons axes
+#   type="n" : ne tracer aucun point ou ligne dans cette étape
+#   ylim inversé (14.5 → 0.5) : rang 1 en HAUT (meilleure région)
+#   xaxt="n" / yaxt="n" : on gère manuellement les axes (axis() plus bas)
+plot(1:3, rm_mat[1, ], type = "n",
+     xlim  = c(0.8, 3.2), ylim = c(14.5, 0.5),
+     xaxt  = "n", yaxt = "n",
+     xlab  = "Méthode de pondération",
+     ylab  = "Rang (1 = meilleure région)",
+     cex.lab = 0.82,
+     main  = "Sensibilité du classement à la méthode de pondération",
+     cex.main = 0.90)
+
+# rect() : rectangle de fond crème à l'intérieur de la zone de tracé
+rect(0.65, 0.3, 3.35, 14.7, col = "#F7F0DC", border = NA)
+
+# abline() : lignes horizontales blanches (grille) pour chaque rang 1 à 14
+abline(h = 1:14, col = "white", lwd = 0.7)
+
+# axis() : tracé manuel des axes avec les étiquettes personnalisées
+#   Axe X : 3 méthodes nommées | Axe Y : rangs 1 à 14 (las=1 = horizontal)
+axis(1, at = 1:3, labels = c("Équipondération", "ACP", "AHP"), cex.axis = 0.76)
+axis(2, at = 1:14, las = 1, cex.axis = 0.70)
+
+# Boucle : tracer une ligne + des points pour chaque région
+# i = index de la région dans rm_mat → rm_mat[i,] = vecteur de 3 rangs
 for(i in 1:14){
-  lines(1:3, rm_mat[i,], col=cr[i], lwd=2.0)
-  points(1:3, rm_mat[i,], col=cr[i], pch=19, cex=0.95)
+  lines(1:3, rm_mat[i, ], col = cr[i], lwd = 2.0)           # Ligne colorée
+  points(1:3, rm_mat[i, ], col = cr[i], pch = 19, cex = 0.95) # Points plein
 }
-legend("topright", inset=c(-0.36, 0),
-       legend=regions[order(rh)],
-       col=cr[order(rh)],
-       lty=1, lwd=2, cex=0.44, bty="n", pt.cex=0.85, title="Régions (par rang AHP)")
+
+# legend() : légende placée à l'extérieur du graphique (droite)
+#   "topright" + inset négatif : positionne la légende hors de la zone de tracé
+#   order(rh) : trie les régions dans l'ordre de leur rang AHP pour la légende
+legend("topright",
+  inset  = c(-0.30, 0),
+  legend = regions[order(rh)],
+  col    = cr[order(rh)],
+  lty = 1, lwd = 1.8,
+  cex = 0.40, bty = "n",
+  pt.cex = 0.75,
+  title  = "Régions (rang AHP)",
+  title.cex = 0.42)
 ```
 
-\begin{exampleblock}{\small Comment lire ce graphique ?}
+\begin{exampleblock}{\small Interprétation}
 \small
-Chaque ligne représente une région. Une ligne \textbf{horizontale} = le classement de cette région ne change pas selon la méthode. Une ligne \textbf{inclinée ou croisée} = le classement est instable. Ici, les lignes sont quasi-horizontales : \textbf{le classement est très stable}, ce qui valide la robustesse de l'indice.
+Les trajectoires quasi-horizontales montrent que le \textbf{rang de chaque région reste stable} quelle que soit la méthode. Les disparités régionales au Sénégal sont suffisamment marquées pour s'imposer indépendamment des choix de pondération : \textbf{l'indice est robuste}.
 \end{exampleblock}
 
 ## Robustesse confirmée — Corrélations de Spearman
 
 ```{r tab-rho}
+# ── TABLEAU : Corrélations de Spearman entre les 3 méthodes ──
+# Package utilisé : knitr — fonction kable()
+# Objectif : quantifier numériquement la robustesse du classement.
+# Les valeurs rho_ea, rho_eh, rho_ah ont été calculées dans le chunk setup
+# avec cor(..., method="spearman") — corrélation de rang de Spearman.
+
+# Construction du tableau des corrélations
 df_rho <- data.frame(
-  Comparaison = c("Équipondération vs ACP","Équipondération vs AHP","ACP vs AHP"),
-  Rho         = c(rho_ea, rho_eh, rho_ah),
-  Interp      = c("Convergence très forte — quasi-identiques",
-                  "Convergence très forte — quasi-identiques",
-                  "Convergence quasi-parfaite")
+  Comparaison = c("Équipondération vs ACP",
+                  "Équipondération vs AHP",
+                  "ACP vs AHP"),
+  Rho    = c(rho_ea, rho_eh, rho_ah),   # Valeurs calculées dans setup
+  Interp = c("Convergence très forte — quasi-identiques",
+             "Convergence très forte — quasi-identiques",
+             "Convergence quasi-parfaite")
 )
+
+# kable() (knitr) : tableau LaTeX
+#   escape=FALSE : permet d'utiliser $\rho$ comme commande LaTeX dans col.names
+#     Sans escape=FALSE, le $ serait traité comme du texte brut et non comme du LaTeX
+#   booktabs=TRUE : style académique épuré (pas de lignes verticales)
 kable(df_rho,
   col.names = c("Comparaison", "$\\rho$ de Spearman", "Interprétation"),
-  booktabs  = TRUE, escape=FALSE,
-  caption   = "Corrélations de rang entre les 3 méthodes de pondération")
+  booktabs  = TRUE,
+  escape    = FALSE
+) %>%
+  kable_styling(font_size = 7) %>%
+  column_spec(1, width = "4.2cm") %>%
+  column_spec(2, width = "1.8cm", bold = TRUE, color = CV) %>%
+  column_spec(3, width = "4.8cm")
 ```
 
-\vspace{0.3em}
+\vspace{0.2em}
 \begin{exampleblock}{\small Interprétation}
 \small
-Rappel : $\rho = 1$ = classements identiques. Ici, $\rho > 0{,}99$ pour toutes les comparaisons. La variation maximale d'une région entre deux méthodes est de \textbf{1 rang}. Autrement dit, une région classée 5\textsuperscript{e} par une méthode sera au pire 6\textsuperscript{e} par une autre.\\
-$\Rightarrow$ \textbf{L'indice est robuste : la réalité socioéconomique prime sur les choix méthodologiques.}
+Avec $\rho_S>0{,}99$ sur les trois paires et un écart maximal d'\textbf{un seul rang}, les trois méthodes convergent vers le même classement. Cela confirme que l'indice reflète une \textbf{réalité socioéconomique structurelle} au Sénégal, et non un artefact méthodologique.
 \end{exampleblock}
 
 # Résultats \& Implications
 
 ## Classement final des 14 régions du Sénégal
 
-```{r fig-class, fig.height=2.8, out.width="94%"}
-ro   <- res[order(res$score), ]
-n14  <- nrow(ro)
-cols_bar <- colorRampPalette(c("#8C1428","#B8600A",CV))(n14)
-par(mar=c(4.2, 8.0, 1.8, 3.5), bg="#FDF6E3")
+```{r fig-class, fig.height=2.2, out.width="94%"}
+# ── GRAPHIQUE : Classement final des 14 régions (indice AHP) ─
+# Package utilisé : GRAPHIQUES DE BASE R (barplot, text, abline)
+# Objectif : visualiser le classement final des régions avec leurs scores AHP,
+#   du moins développé (en bas) au plus développé (en haut).
+
+# Tri du tableau des résultats par score AHP croissant
+# (barplot horizontal : la première valeur est en bas → on met les plus faibles en premier)
+ro  <- res[order(res$score), ]   # Tri croissant par score AHP
+n14 <- nrow(ro)                  # = 14 régions
+
+# colorRampPalette() : dégradé de n14=14 couleurs allant du bleu-vert au rose
+#   Les régions en bas (faibles scores) reçoivent une couleur froide (bleu)
+#   Les régions en haut (forts scores) reçoivent une couleur chaude (rose)
+cols_bar <- colorRampPalette(c("#264653", "#2A9D8F", "#E9C46A", CV))(n14)
+
+# par() : larges marges gauche (8.0) pour les noms de régions
+par(mar = c(3.5, 7.8, 1.8, 2.5), bg = "#FDF6E3")
+
+# barplot() horizontal avec les scores AHP
+#   horiz=TRUE : barres horizontales
+#   xlim étendu à 1.30× le max pour laisser de la place aux annotations de score
+#   bp : positions verticales des barres (renvoyé par barplot, utilisé dans text())
 bp <- barplot(ro$score,
-  names.arg = ro$region, horiz=TRUE, las=1,
-  col=cols_bar, border=NA,
-  xlab="Score normalisé [0 - 1]",
-  main="Indice composite de développement — Pondération AHP",
-  cex.names=0.70, xlim=c(0, max(ro$score)*1.30),
-  cex.main=0.86, cex.lab=0.80)
-text(ro$score + 0.012, bp, sprintf("%.3f", ro$score), cex=0.58, col=C4, font=2)
-abline(v=mean(indice_ahp), lty=2, col=C3, lwd=1.3)
-text(mean(indice_ahp)+0.008, bp[7]+0.1, "Moy.", cex=0.56, col=C3, font=3, adj=0)
+  names.arg = ro$region,
+  horiz     = TRUE,
+  las       = 1,              # Étiquettes Y horizontales
+  col       = cols_bar,
+  border    = NA,
+  xlab      = "Score normalisé [0 - 1]",
+  main      = "Classement final — Indice composite (Pondération AHP)",
+  cex.names = 0.68,
+  xlim      = c(0, max(ro$score) * 1.28),
+  cex.main  = 0.82,
+  cex.lab   = 0.78)
+
+# text() : affiche le score numérique à droite de chaque barre
+#   sprintf("%.3f", ...) : formate le score avec 3 décimales (ex. "0.871")
+#   font=2 : texte en gras
+text(ro$score + 0.012, bp,
+     sprintf("%.3f", ro$score),
+     cex = 0.58, col = C4, font = 2)
+
+# abline() : ligne verticale pointillée représentant la moyenne nationale
+#   lty=2 : style pointillé | col=C3 : or
+abline(v = mean(indice_ahp), lty = 2, col = C3, lwd = 1.3)
+
+# text() : étiquette "Moy." juste après la ligne de moyenne
+#   bp[7] : hauteur approximative du 7e barplot (milieu de la liste)
+#   font=3 : texte en italique
+text(mean(indice_ahp) + 0.008, bp[7] + 0.1,
+     "Moy.", cex = 0.56, col = C3, font = 3, adj = 0)
 ```
 
-\begin{exampleblock}{\small Lecture du graphique}
+\begin{exampleblock}{\small Interprétation}
 \small
-Les régions sont classées du score le plus faible (bas) au plus élevé (haut). La ligne pointillée or représente la \textbf{moyenne nationale}. La moitié des régions est en dessous — déséquilibre tiré par Dakar vers le haut.
+\textbf{Dakar} domine avec un score de $0{,}871$, soit plus du double de \textbf{Thiès} (2\textsuperscript{e}). La majorité des régions se situe \textbf{sous la moyenne nationale} (ligne pointillée), révélant un déséquilibre structurel concentré dans le Sud et le Centre-Est du pays.
 \end{exampleblock}
 
 ## Cartographie — Gradient géographique du développement
 
-```{r fig-map, fig.height=2.6, out.width="92%", warning=FALSE, message=FALSE}
-# Coordonnées approx. des centroides des 14 régions (longitude / latitude)
+```{r fig-map, fig.height=2.2, out.width="90%", warning=FALSE, message=FALSE}
+# ── GRAPHIQUE : Carte des scores AHP — Gradient géographique ─
+# Package utilisé : GRAPHIQUES DE BASE R (plot, text, legend)
+# Note : pas de package cartographique (sf, maps...) — on simule la carte
+#   avec des points positionnés aux coordonnées GPS des 14 régions.
+# Objectif : visualiser le gradient géographique Nord-Ouest / Sud-Est.
+
+# ── Étape 1 : Table de correspondance des coordonnées GPS ─────
+# Coordonnées approximatives des centroïdes de chaque région (WGS84)
+# lon = longitude (axe Est-Ouest) | lat = latitude (axe Nord-Sud)
 coords_lut <- data.frame(
   key = c("dakar","thies","diourbel","fatick","kaolack",
           "kaffrine","tambacounda","kolda","sedhiou",
@@ -727,53 +1238,89 @@ coords_lut <- data.frame(
   stringsAsFactors = FALSE
 )
 
-# Joindre scores et coordonnées (correspondance par nom ASCII sans accents)
+# ── Étape 2 : Jointure scores AHP + coordonnées GPS ──────────
+# Problème : les noms de régions dans 'regions' ont des accents
+#   (ex. "Kédougou"), mais la table coords_lut utilise des clés ASCII
+#   sans accents (ex. "kedougou") pour la robustesse de la jointure.
+# Solution : fonction strip_acc() qui supprime les accents et met en minuscule.
+#   chartr() remplace caractère par caractère les lettres accentuées.
 strip_acc <- function(x) tolower(chartr(
   "àáâãäåæçèéêëìíîïðñòóôõöùúûüýÿ",
   "aaaaaaeceeeeiiiidnoooooouuuuyy", x))
 
+# Construction du tableau principal de la carte
 map_df <- data.frame(
-  key    = strip_acc(regions),
-  region = regions,
-  score  = indice_ahp,
-  rang   = rank(-indice_ahp),
+  key    = strip_acc(regions),   # Clé de jointure sans accent
+  region = regions,              # Nom officiel avec accent (pour les étiquettes)
+  score  = indice_ahp,           # Score AHP de chaque région
+  rang   = rank(-indice_ahp),    # Rang (1 = meilleure)
   stringsAsFactors = FALSE
 )
-map_df <- merge(map_df, coords_lut, by="key", all.x=TRUE)
 
-# Couleur continue rose/bordeaux
-pal_map <- colorRampPalette(c("#8C1428", "#DA9B19", CV))(100)
+# merge() : jointure sur la colonne "key" (équivalent d'un LEFT JOIN SQL)
+#   all.x=TRUE : garder toutes les régions même si la clé ne matche pas
+map_df <- merge(map_df, coords_lut, by = "key", all.x = TRUE)
 
-# Taille des points proportionnelle au score [3, 10]
-sz <- 3 + map_df$score / max(map_df$score, na.rm=TRUE) * 7
+# ── Étape 3 : Palette de couleurs continue ───────────────────
+# colorRampPalette() : 100 couleurs du bleu-vert (régions défavorisées)
+#   jusqu'au rose vif (régions développées)
+# On convertira le score [0,1] en index [1,100] pour choisir la couleur
+pal_map <- colorRampPalette(c("#264653","#2A9D8F","#E9C46A","#B92346"))(100)
 
-par(mar=c(0.5,0.5,1.8,0.5), bg="#FDF6E3")
+# ── Étape 4 : Taille des points proportionnelle au score ─────
+# Les régions avec un score élevé auront de GRANDS points (plus visibles)
+# Score normalisé entre 3 (point minimal) et 10 (point maximal)
+sz <- 3 + map_df$score / max(map_df$score, na.rm = TRUE) * 7
+
+# ── Étape 5 : Tracé de la carte ──────────────────────────────
+par(mar = c(0.3, 0.3, 1.5, 0.3), bg = "#FDF6E3")  # Marges minimales
+
+# plot() : place un point (pch=21 = cercle avec fond coloré) pour chaque région
+#   pch=21 : symbole cercle avec bg (fond) et col (bordure) distincts
+#   cex=sz : taille variable selon le score
+#   bg = pal_map[...] : couleur du fond du cercle selon le score
+#     round(...*99)+1 : convertit le score [0,1] en index entier [1,100]
+#   axes=FALSE : pas d'axes de coordonnées (c'est une carte, pas un graphique XY)
+#   xlim/ylim : délimitent la fenêtre géographique autour du Sénégal
 plot(map_df$lon, map_df$lat,
-     pch=21, cex=sz,
-     bg = pal_map[round(map_df$score / max(map_df$score, na.rm=TRUE) * 99) + 1],
-     col="white", lwd=0.4,
-     xlim=c(-17.8, -11.2), ylim=c(11.8, 17.2),
-     xlab=NA, ylab=NA, axes=FALSE,
-     main="Gradient géographique — Sénégal (score AHP [0-1])",
-     cex.main=0.85)
-# Étiquettes : nom + rang
-text(map_df$lon, map_df$lat + 0.35,
+     pch  = 21,
+     cex  = sz,
+     bg   = pal_map[round(map_df$score / max(map_df$score, na.rm = TRUE) * 99) + 1],
+     col  = "white", lwd = 0.4,         # Bordure blanche fine
+     xlim = c(-17.8, -11.2),            # Longitude : de Dakar (W) à Kédougou (E)
+     ylim = c(11.8, 17.2),              # Latitude : du Sud (Casamance) au Nord (St-Louis)
+     xlab = NA, ylab = NA,
+     axes = FALSE,
+     main    = "Gradient géographique du développement — Sénégal",
+     cex.main = 0.82)
+
+# text() : étiquettes des régions au-dessus de chaque point
+#   lat + 0.35 : décalage vers le haut pour ne pas chevaucher le point
+#   paste0(..., "\n(", rang, ")") : nom + rang sur deux lignes
+text(map_df$lon, map_df$lat + 0.32,
      paste0(map_df$region, "\n(", map_df$rang, ")"),
-     cex=0.48, col=C4, font=2)
-# Légende discrète (min / moy / max)
-legend("bottomright", bty="n", cex=0.58,
-  legend=c(
-    paste0("1er : ", map_df$region[which.min(map_df$rang)], " (",
-           round(max(map_df$score, na.rm=TRUE), 2), ")"),
-    paste0("14e : ", map_df$region[which.max(map_df$rang)], " (",
-           round(min(map_df$score, na.rm=TRUE), 2), ")")
+     cex = 0.44, col = C4, font = 2)
+
+# legend() : légende compacte montrant la 1ère et la 14e région
+#   which.min(rang) = index de la région classée 1ère (rang le plus petit)
+#   which.max(rang) = index de la région classée 14e (rang le plus grand)
+#   pt.bg = couleurs correspondant aux extrêmes de la palette
+legend("bottomright", bty = "n", cex = 0.58,
+  legend = c(
+    paste0("1er : ", map_df$region[which.min(map_df$rang)],
+           " (", round(max(map_df$score, na.rm = TRUE), 2), ")"),
+    paste0("14e : ", map_df$region[which.max(map_df$rang)],
+           " (", round(min(map_df$score, na.rm = TRUE), 2), ")")
   ),
-  pch=21, pt.bg=c(CV,"#8C1428"), col="white", pt.cex=1.4)
+  pch    = 21,
+  pt.bg  = c("#B92346", "#264653"),   # Rose = 1er | Bleu = 14e
+  col    = "white",
+  pt.cex = 1.4)
 ```
 
-\begin{exampleblock}{\small Lecture de la carte}
+\begin{exampleblock}{\small Interprétation}
 \small
-La \textbf{taille et la couleur} de chaque bulle représentent le score AHP. \textbf{Rose vif = mieux développé} (Dakar, nord-ouest). \textbf{Rouge foncé = défavorisé} (Kédougou, Kolda, Sédhiou au sud-est). Le \textbf{gradient géographique} Nord-Ouest / Sud-Est est parfaitement visible.
+La carte matérialise le \textbf{gradient Nord-Ouest / Sud-Est} documenté par l'ANSD : les régions côtières et du fleuve Sénégal (Dakar, Thiès, Saint-Louis) concentrent les scores les plus élevés, tandis que la \textbf{Casamance et le Sénégal Oriental} restent en retard structurel.
 \end{exampleblock}
 
 ## Interprétation des résultats — Contexte sénégalais
@@ -782,27 +1329,27 @@ La \textbf{taille et la couleur} de chaque bulle représentent le score AHP. \te
 \begin{column}{0.50\textwidth}
 \begin{exampleblock}{\textbf{Top 3 — Régions les plus développées}}
 \small
-\begin{enumerate}
-  \item \textbf{Dakar (0,871)} — Capitale. Concentration de services, d'universités, d'emplois formels et d'infrastructures sans égal. Son score est plus du double de la 2\textsuperscript{e} région.
-  \item \textbf{Thiès (0,519)} — 2\textsuperscript{e} pôle économique, réseau routier dense, industrie phosphatière.
-  \item \textbf{Saint-Louis (0,462)} — Ancienne capitale, université, agriculture irriguée du delta.
+\begin{enumerate}\setlength{\itemsep}{1pt}
+  \item \textbf{Dakar (0,871)} — Capitale. Score $>2\times$ la 2\textsuperscript{e} région. Services, emplois formels, universités.
+  \item \textbf{Thiès (0,519)} — 2\textsuperscript{e} pôle économique, routes denses, phosphates.
+  \item \textbf{Saint-Louis (0,462)} — Ancienne capitale, université, agriculture irriguée.
 \end{enumerate}
 \end{exampleblock}
 \end{column}
 \begin{column}{0.47\textwidth}
 \begin{alertblock}{\textbf{Bottom 3 — Régions prioritaires}}
 \small
-\begin{enumerate}
+\begin{enumerate}\setlength{\itemsep}{1pt}
   \setcounter{enumi}{11}
   \item \textbf{Kolda (0,164)} — Enclavement, déficit de services
   \item \textbf{Sédhiou (0,161)} — Région jeune, sous-équipée
-  \item \textbf{Kédougou (0,129)} — La plus isolée. Riche en or et biodiversité, mais le plus faible IDH du pays — \textit{paradoxe des ressources naturelles}.
+  \item \textbf{Kédougou (0,129)} — Riche en or, mais IDH le plus faible — \textit{paradoxe des ressources}.
 \end{enumerate}
 \end{alertblock}
-\vspace{0.2em}
+\vspace{0.1em}
 \begin{block}{\small Gradient documenté}
-\small
-Ce résultat est cohérent avec tous les travaux de l'ANSD et du PNUD sur les disparités régionales au Sénégal.
+\footnotesize
+Cohérent avec tous les travaux ANSD et PNUD sur les disparités régionales au Sénégal.
 \end{block}
 \end{column}
 \end{columns}
@@ -813,32 +1360,32 @@ Ce résultat est cohérent avec tous les travaux de l'ANSD et du PNUD sur les di
 
 \begin{columns}
 \begin{column}{0.50\textwidth}
-\begin{alertblock}{\small\textbf{Piège \#1 — Orientation des indicateurs}}
+\begin{alertblock}{\small\textbf{Piège \#1 — Orientation}}
 \footnotesize
-5 indicateurs doivent être inversés ($\times -1$) avant normalisation. Oublier cette étape revient à \textbf{récompenser} les régions où la mortalité infantile est la plus élevée.
+5 indicateurs inversés ($\times -1$) avant normalisation. Sans cette étape, on \textbf{récompense} les régions à forte mortalité infantile.
 \end{alertblock}
-\vspace{0.2em}
-\begin{alertblock}{\small\textbf{Piège \#2 — Sensibilité Min-Max}}
+\vspace{0.15em}
+\begin{alertblock}{\small\textbf{Piège \#2 — Min-Max sensible}}
 \footnotesize
-La normalisation Min-Max est \textbf{sensible aux valeurs extrêmes}. Dakar (score $\approx 0{,}87$) tire toute l'échelle vers le haut, compressant les écarts entre les autres régions.
+Dakar ($\approx 0{,}87$) tire l'échelle vers le haut et \textbf{compresse} les écarts entre les autres régions.
 \end{alertblock}
 \end{column}
 \begin{column}{0.48\textwidth}
-\begin{alertblock}{\small\textbf{Piège \#3 — Équipondération = choix politique}}
+\begin{alertblock}{\small\textbf{Piège \#3 — Équipondération politique}}
 \footnotesize
-Poids égaux n'est \textbf{pas une neutralité} : c'est un choix implicite de donner la même importance à chaque indicateur, quel que soit son impact sur le bien-être.
+Poids égaux \textbf{n'est pas neutre} : donner le même poids à la mortalité infantile et à la superficie agricole est un choix implicite.
 \end{alertblock}
-\vspace{0.2em}
+\vspace{0.15em}
 \begin{alertblock}{\small\textbf{Piège \#4 — Robustesse $\neq$ Vérité}}
 \footnotesize
-$\rho_S > 0{,}99$ confirme la \textbf{convergence des méthodes} entre elles, pas la validité des données simulées. La robustesse interne ne dispense pas d'un audit externe.
+$\rho_S>0{,}99$ confirme la \textbf{convergence des méthodes}, pas la validité des données. L'audit externe reste indispensable.
 \end{alertblock}
 \end{column}
 \end{columns}
-\vspace{0.2em}
-\begin{exampleblock}{\small Un classement qui change selon la méthode n'est pas un problème à cacher}
+\vspace{0.15em}
+\begin{exampleblock}{\small Un classement variable selon la méthode est un résultat scientifique}
 \small
-C'est un \textbf{résultat scientifique} qui doit être reporté et interprété honnêtement.
+Il doit être \textbf{reporté et interprété honnêtement} — pas caché.
 \end{exampleblock}
 
 ## Bilan — Ce que nous avons montré
@@ -847,25 +1394,26 @@ C'est un \textbf{résultat scientifique} qui doit être reporté et interprété
 \begin{column}{0.52\textwidth}
 \begin{block}{\small Démarche réalisée}
 \small
-\begin{itemize}\setlength{\itemsep}{0pt}
+\begin{itemize}\setlength{\itemsep}{0pt}\setlength{\parsep}{0pt}
   \item \textbf{23 indicateurs} audités (0 manquant, 0 redondant)
   \item \textbf{3 normalisations} : Min-Max, Z-score, Centile
-  \item \textbf{ACP :} `r n_axes` axe(s) — `r round(ev[n_axes,3],1)`\% variance
+  \item \textbf{ACP :} `r n_axes` axe(s) — `r round(ev[n_axes,3],1)`\% variance cumulée
   \item \textbf{3 indices :} équipondéré, ACP, AHP
-  \item \textbf{Robustesse :} $\rho_S =$~`r rho_eh` (Équi vs AHP)
+  \item \textbf{Robustesse :} $\rho_S=$ `r rho_eh` (Équi vs AHP)
 \end{itemize}
 \end{block}
-\vspace{0.08em}
+\vspace{0.06em}
 \begin{alertblock}{\small Limites}
 \footnotesize
-Données simulées $\cdot$ Poids AHP subjectifs $\cdot$ Pas de panel
+Données simulées $\cdot$ Poids AHP subjectifs $\cdot$ Pas de panel temporel
 \end{alertblock}
 \end{column}
 \begin{column}{0.45\textwidth}
-\begin{exampleblock}{\small\textbf{Réponse à la question}}
+\begin{exampleblock}{\small\textbf{Réponse à la question centrale}}
 \small
-Le classement \textbf{ne dépend pas} des choix méthodologiques : $\rho_S > 0{,}99$, variation max. de \textbf{1 rang}.\\[4pt]
-$\Rightarrow$ Le gradient Nord-Ouest / Sud-Est prime sur les choix techniques.
+Le classement \textbf{ne dépend pas} des choix méthodologiques :\\
+$\rho_S > 0{,}99$ — variation max. = \textbf{1 rang}.\\[4pt]
+$\Rightarrow$ Le gradient \textbf{Nord-Ouest / Sud-Est} prime sur les choix techniques.
 \end{exampleblock}
 \end{column}
 \end{columns}
