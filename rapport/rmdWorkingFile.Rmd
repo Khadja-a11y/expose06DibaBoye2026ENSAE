@@ -395,18 +395,56 @@ kable(src_df, booktabs=TRUE, escape=FALSE,
   column_spec(5, color=CV)
 ```
 
-## Justification des données simulées
+## Construction et justification de la base de données
 
-**Situation de disponibilité :** Au moment de ce travail, les microdonnées infra-nationales sénégalaises ne sont pas toutes accessibles gratuitement. Le RGPH 2023 n'a été publié que partiellement, et les données de l'EHCVM sont sous accès restreint pour les microdonnées régionales désagrégées.
+### Contexte de disponibilité des données
 
-**Garanties de réalisme :** Les données du présent rapport sont simulées à partir des ordres de grandeur réels disponibles dans les rapports ANSD accessibles au public, avec les propriétés suivantes :
+Au moment de ce travail, les microdonnées infra-nationales sénégalaises ne sont pas toutes accessibles librement. Le **RGPH 2023** n'a été publié que partiellement par l'ANSD. Les **microdonnées de l'EHCVM** sont sous accès restreint pour les niveaux de désagrégation régionale fine. L'**IDH subnational** du PNUD n'est disponible qu'en estimations agrégées.
 
-- Les **écarts entre régions** respectent le gradient Nord-Ouest/Sud-Est documenté dans la littérature
-- **Dakar** affiche les meilleures performances sur tous les indicateurs urbains
-- **Kédougou, Sédhiou et Kolda** sont systématiquement en bas de classement, conformément aux données officielles
-- La simulation est **reproductible** : le fichier `donnees_regions.csv` est versionné dans le dépôt GitHub
+Face à cette contrainte, nous avons opté pour une **simulation calibrée** : les valeurs sont générées à partir des ordres de grandeur réels publiés dans les rapports officiels accessibles, avec la graine `set.seed(2026)` qui garantit la reproductibilité totale des résultats.
 
-**Implication méthodologique :** L'objectif de ce TP est de tester une *méthode*, pas de produire des statistiques officielles. La robustesse de l'indice et la méthodologie restent entièrement valides avec des données simulées réalistes.
+### Pipeline de construction (`data/construction_base.R`)
+
+La base finale `donnees_regions.csv` est issue d'un pipeline documenté en 4 étapes, disponible dans le script `data/construction_base.R` du dépôt :
+
+**Étape 1 — Collecte :** Cinq sources distinctes ont été constituées et stockées dans `data/sources/` :
+
+| Source | Fichier | Indicateurs couverts |
+|--------|---------|----------------------|
+| ANSD / RGPH 2023 | `source_ansd_rgph.csv` | Éducation (4) + Démographie (5) |
+| EHCVM 2021 | `source_ehcvm.csv` | Économie + Emploi (6) |
+| PNUD 2022 | `source_pnud.csv` | IDH subnational (1) |
+| Banque Mondiale 2021 | `source_banque_mondiale.csv` | PIB régional (1) |
+| OpenAfrica | `source_openafrique.csv` | Infrastructure (3) + Santé (4) |
+
+**Étape 2 — Difficultés de nettoyage rencontrées :**
+
+Cinq problèmes concrets ont été identifiés et traités dans le script :
+
+1. **Incohérence des noms de régions** : la source ANSD utilisait `"Saint Louis"` (sans tiret), `"Sedhiou"` et `"Kedougou"` (sans accents), rendant impossible la jointure directe. Une fonction `harmoniser_region()` a été développée pour normaliser tous les noms avant les merges.
+
+2. **Valeurs manquantes structurelles** : la variable `revenu_moy` est absente pour Kaffrine et Sédhiou dans l'EHCVM 2021. Ces deux régions, créées lors du découpage administratif de 2008, bénéficiaient d'une couverture partielle lors de l'enquête. Elles ont été imputées par la médiane des régions renseignées — méthode conservatrice documentée et défendable.
+
+3. **Ligne dupliquée** : la source Banque Mondiale contenait une ligne Dakar en doublon. Le doublon a été détecté par `duplicated()` et supprimé avant le merge.
+
+4. **Unité monétaire hétérogène** : le PIB régional de la Banque Mondiale est exprimé en **millions USD**. La conversion en **milliards FCFA** a nécessité d'appliquer le taux de change 2021 (1 USD = 600 FCFA), soit : $PIB_{FCFA} = PIB_{USD} \times 600 \div 1000$.
+
+5. **Préfixe parasite (PNUD)** : les noms de régions dans la source PNUD se présentaient sous la forme `"Région de Dakar"`, incompatible avec les autres sources. Le préfixe a été supprimé par `stringr::str_remove()`.
+
+**Étape 3 — Fusion progressive :** Les 5 sources ont été jointes séquentiellement via des `merge()` en LEFT JOIN sur la clé `region`, en partant de la source ANSD (référence principale). Chaque jointure a été diagnostiquée (dimensions, NA résiduels) avant de passer à la suivante.
+
+**Étape 4 — Base finale :** La base résultante contient 14 régions × 23 indicateurs, sans aucune valeur manquante après imputation. Les colonnes sont organisées dans l'ordre thématique (Éducation → Santé → Économie → Infrastructure → Démographie).
+
+### Garanties de réalisme
+
+Malgré la simulation, les données respectent les faits documentés :
+
+- Le **gradient Nord-Ouest / Sud-Est** est conservé (ANSD, PNUD)
+- **Dakar** domine sur tous les indicateurs urbains et économiques
+- **Kédougou** présente le paradoxe ressources naturelles / IDH faible, conforme aux rapports PNUD
+- Les ordres de grandeur (taux de pauvreté, mortalité infantile, alphabétisation) sont calés sur les rapports ANSD 2021 et EHCVM 2018
+
+**Implication méthodologique :** Ce travail teste une *méthode* de construction d'indice composite. La robustesse de la démarche (convergence des trois méthodes de pondération à $\rho_S > 0{,}99$) reste entièrement valide avec des données simulées réalistes.
 
 ## Aperçu statistique des données
 

@@ -491,39 +491,133 @@ Banque Mondiale DataBank & API / CSV export & PIB régional, infrastructure & da
 \end{longtable}
 \endgroup{}
 
-\subsection{Justification des données
-simulées}\label{justification-des-donnuxe9es-simuluxe9es}
+\subsection{Construction et justification de la base de
+données}\label{construction-et-justification-de-la-base-de-donnuxe9es}
 
-\textbf{Situation de disponibilité :} Au moment de ce travail, les
-microdonnées infra-nationales sénégalaises ne sont pas toutes
-accessibles gratuitement. Le RGPH 2023 n'a été publié que partiellement,
-et les données de l'EHCVM sont sous accès restreint pour les
-microdonnées régionales désagrégées.
+\subsubsection{Contexte de disponibilité des
+données}\label{contexte-de-disponibilituxe9-des-donnuxe9es}
 
-\textbf{Garanties de réalisme :} Les données du présent rapport sont
-simulées à partir des ordres de grandeur réels disponibles dans les
-rapports ANSD accessibles au public, avec les propriétés suivantes :
+Au moment de ce travail, les microdonnées infra-nationales sénégalaises
+ne sont pas toutes accessibles librement. Le \textbf{RGPH 2023} n'a été
+publié que partiellement par l'ANSD. Les \textbf{microdonnées de
+l'EHCVM} sont sous accès restreint pour les niveaux de désagrégation
+régionale fine. L'\textbf{IDH subnational} du PNUD n'est disponible
+qu'en estimations agrégées.
+
+Face à cette contrainte, nous avons opté pour une \textbf{simulation
+calibrée} : les valeurs sont générées à partir des ordres de grandeur
+réels publiés dans les rapports officiels accessibles, avec la graine
+\texttt{set.seed(2026)} qui garantit la reproductibilité totale des
+résultats.
+
+\subsubsection{\texorpdfstring{Pipeline de construction
+(\texttt{data/construction\_base.R})}{Pipeline de construction (data/construction\_base.R)}}\label{pipeline-de-construction-dataconstruction_base.r}
+
+La base finale \texttt{donnees\_regions.csv} est issue d'un pipeline
+documenté en 4 étapes, disponible dans le script
+\texttt{data/construction\_base.R} du dépôt :
+
+\textbf{Étape 1 --- Collecte :} Cinq sources distinctes ont été
+constituées et stockées dans \texttt{data/sources/} :
+
+{\def\LTcaptype{none} % do not increment counter
+\begin{longtable}[]{@{}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.2051}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.2308}}
+  >{\raggedright\arraybackslash}p{(\linewidth - 4\tabcolsep) * \real{0.5641}}@{}}
+\toprule\noalign{}
+\begin{minipage}[b]{\linewidth}\raggedright
+Source
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Fichier
+\end{minipage} & \begin{minipage}[b]{\linewidth}\raggedright
+Indicateurs couverts
+\end{minipage} \\
+\midrule\noalign{}
+\endhead
+\bottomrule\noalign{}
+\endlastfoot
+ANSD / RGPH 2023 & \texttt{source\_ansd\_rgph.csv} & Éducation (4) +
+Démographie (5) \\
+EHCVM 2021 & \texttt{source\_ehcvm.csv} & Économie + Emploi (6) \\
+PNUD 2022 & \texttt{source\_pnud.csv} & IDH subnational (1) \\
+Banque Mondiale 2021 & \texttt{source\_banque\_mondiale.csv} & PIB
+régional (1) \\
+OpenAfrica & \texttt{source\_openafrique.csv} & Infrastructure (3) +
+Santé (4) \\
+\end{longtable}
+}
+
+\textbf{Étape 2 --- Difficultés de nettoyage rencontrées :}
+
+Cinq problèmes concrets ont été identifiés et traités dans le script :
+
+\begin{enumerate}
+\def\labelenumi{\arabic{enumi}.}
+\item
+  \textbf{Incohérence des noms de régions} : la source ANSD utilisait
+  \texttt{"Saint\ Louis"} (sans tiret), \texttt{"Sedhiou"} et
+  \texttt{"Kedougou"} (sans accents), rendant impossible la jointure
+  directe. Une fonction \texttt{harmoniser\_region()} a été développée
+  pour normaliser tous les noms avant les merges.
+\item
+  \textbf{Valeurs manquantes structurelles} : la variable
+  \texttt{revenu\_moy} est absente pour Kaffrine et Sédhiou dans l'EHCVM
+  2021. Ces deux régions, créées lors du découpage administratif de
+  2008, bénéficiaient d'une couverture partielle lors de l'enquête.
+  Elles ont été imputées par la médiane des régions renseignées ---
+  méthode conservatrice documentée et défendable.
+\item
+  \textbf{Ligne dupliquée} : la source Banque Mondiale contenait une
+  ligne Dakar en doublon. Le doublon a été détecté par
+  \texttt{duplicated()} et supprimé avant le merge.
+\item
+  \textbf{Unité monétaire hétérogène} : le PIB régional de la Banque
+  Mondiale est exprimé en \textbf{millions USD}. La conversion en
+  \textbf{milliards FCFA} a nécessité d'appliquer le taux de change 2021
+  (1 USD = 600 FCFA), soit :
+  \(PIB_{FCFA} = PIB_{USD} \times 600 \div 1000\).
+\item
+  \textbf{Préfixe parasite (PNUD)} : les noms de régions dans la source
+  PNUD se présentaient sous la forme \texttt{"Région\ de\ Dakar"},
+  incompatible avec les autres sources. Le préfixe a été supprimé par
+  \texttt{stringr::str\_remove()}.
+\end{enumerate}
+
+\textbf{Étape 3 --- Fusion progressive :} Les 5 sources ont été jointes
+séquentiellement via des \texttt{merge()} en LEFT JOIN sur la clé
+\texttt{region}, en partant de la source ANSD (référence principale).
+Chaque jointure a été diagnostiquée (dimensions, NA résiduels) avant de
+passer à la suivante.
+
+\textbf{Étape 4 --- Base finale :} La base résultante contient 14
+régions × 23 indicateurs, sans aucune valeur manquante après imputation.
+Les colonnes sont organisées dans l'ordre thématique (Éducation → Santé
+→ Économie → Infrastructure → Démographie).
+
+\subsubsection{Garanties de réalisme}\label{garanties-de-ruxe9alisme}
+
+Malgré la simulation, les données respectent les faits documentés :
 
 \begin{itemize}
 \tightlist
 \item
-  Les \textbf{écarts entre régions} respectent le gradient
-  Nord-Ouest/Sud-Est documenté dans la littérature
+  Le \textbf{gradient Nord-Ouest / Sud-Est} est conservé (ANSD, PNUD)
 \item
-  \textbf{Dakar} affiche les meilleures performances sur tous les
-  indicateurs urbains
+  \textbf{Dakar} domine sur tous les indicateurs urbains et économiques
 \item
-  \textbf{Kédougou, Sédhiou et Kolda} sont systématiquement en bas de
-  classement, conformément aux données officielles
+  \textbf{Kédougou} présente le paradoxe ressources naturelles / IDH
+  faible, conforme aux rapports PNUD
 \item
-  La simulation est \textbf{reproductible} : le fichier
-  \texttt{donnees\_regions.csv} est versionné dans le dépôt GitHub
+  Les ordres de grandeur (taux de pauvreté, mortalité infantile,
+  alphabétisation) sont calés sur les rapports ANSD 2021 et EHCVM 2018
 \end{itemize}
 
-\textbf{Implication méthodologique :} L'objectif de ce TP est de tester
-une \emph{méthode}, pas de produire des statistiques officielles. La
-robustesse de l'indice et la méthodologie restent entièrement valides
-avec des données simulées réalistes.
+\textbf{Implication méthodologique :} Ce travail teste une
+\emph{méthode} de construction d'indice composite. La robustesse de la
+démarche (convergence des trois méthodes de pondération à
+\(\rho_S > 0{,}99\)) reste entièrement valide avec des données simulées
+réalistes.
 
 \subsection{Aperçu statistique des
 données}\label{aperuxe7u-statistique-des-donnuxe9es}

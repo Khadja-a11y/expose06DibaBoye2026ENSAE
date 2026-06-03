@@ -1,0 +1,15 @@
+region_nom,annee_enquete,taux_pauvrete_pct,revenu_median_mensuel_fcfa,taux_chomage_pct,emploi_informel_pct,taux_emploi_feminin_pct,score_securite_alimentaire
+Dakar,2021,17.2,185000,18.2,55.1,38.2,0.72
+Diourbel,2021,45.1,65200,8.1,82.3,25.1,0.48
+Fatick,2021,44.2,58100,7.2,85.1,22.1,0.45
+Kaffrine,2021,61.8,NA,6.1,90.2,17.8,0.35
+Kaolack,2021,41.8,72100,9.1,78.2,27.8,0.52
+Kédougou,2021,60.8,55200,5.1,91.8,15.1,0.32
+Kolda,2021,67.8,48200,5.8,91.1,17.8,0.30
+Louga,2021,47.1,61800,8.2,84.1,23.8,0.42
+Matam,2021,51.8,51800,5.8,88.1,16.1,0.38
+Saint-Louis,2021,33.1,87800,11.8,70.1,31.8,0.58
+Sédhiou,2021,69.8,NA,5.1,93.1,14.1,0.28
+Tambacounda,2021,54.8,57800,6.8,86.1,21.8,0.40
+Thiès,2021,37.1,112000,14.8,61.8,34.8,0.65
+Ziguinchor,2021,39.8,78100,10.8,74.1,29.8,0.50

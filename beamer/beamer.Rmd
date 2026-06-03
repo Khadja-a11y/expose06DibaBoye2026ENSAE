@@ -551,7 +551,7 @@ $\Rightarrow$ Les \textbf{23 indicateurs} sont conservés.
 
 ## Matrice de corrélation — Audit de redondance
 
-```{r fig-corr, fig.height=2.65, out.width="97%"}
+```{r fig-corr, fig.height=2.85, out.width="97%"}
 # ── GRAPHIQUE : Matrice de corrélation — Audit de redondance ─
 # Package utilisé : corrplot — fonction corrplot()
 # Objectif : visualiser les corrélations entre les 23 indicateurs
@@ -587,8 +587,8 @@ corrplot(mat_cor,
 ```
 
 \begin{exampleblock}{\small Interprétation}
-\small
-Les blocs roses confirment la cohérence interne de chaque dimension. Aucune paire ne dépasse $|r|=0{,}95$ : les 23 indicateurs mesurent des réalités \textbf{distinctes} et sont tous conservés pour la construction de l'indice.
+\footnotesize
+Les blocs colorés révèlent 5 groupes cohérents — aucune paire ne dépasse $|r|=0{,}95$ : \textbf{0 redondance}, les 23 indicateurs sont tous conservés.
 \end{exampleblock}
 
 # Étape 2 — Normalisation
@@ -826,33 +826,40 @@ fviz_pca_biplot(acp,
 
 ## Dimensions latentes identifiées
 
-\begin{columns}[t]
-\begin{column}{0.38\textwidth}
+\noindent\begin{minipage}[t]{0.41\textwidth}
 
-```{r tab-dims}
+```{r tab-dims, results='asis'}
 # ── TABLEAU GAUCHE : Statistiques des 3 axes retenus ─────────
-# Packages : knitr (kable) + kableExtra (kable_styling)
-# ev[1:3, 1] : valeurs propres | col.2 : % var. | col.3 : % cumulé
-# NOTE : pas de hold_position (float [H] incompatible avec colonnes Beamer)
+# APPROCHE minipage[t] + cat() avec \tabcolsep réduit.
+# Raison : 5 colonnes × tabcolsep=6pt = ~1.7cm d'inter-colonnes qui
+# débordent hors de la minipage. On réduit à 2pt pour que la table
+# tienne dans 0.41\textwidth (≈ 5.25cm sur un slide 16:9).
 df_ax <- data.frame(
   Axe  = c("Dim. 1", "Dim. 2", "Dim. 3"),
   VP   = round(ev[1:3, 1], 2),
-  Var  = paste0(round(ev[1:3, 2], 1), "%"),
-  Cum  = paste0(round(ev[1:3, 3], 1), "%"),
+  Var  = paste0(round(ev[1:3, 2], 1), "\\%"),
+  Cum  = paste0(round(ev[1:3, 3], 1), "\\%"),
   Dom  = c("Hum.glob.", "Infra.", "Démo.")
 )
-kable(df_ax,
-  col.names = c("Axe", "$\\lambda$", "Var.", "Cum.", "Thème"),
-  booktabs  = TRUE, row.names = FALSE, escape = FALSE
-) %>%
-  kable_styling(font_size = 7) %>%
-  column_spec(1, bold = TRUE, color = CV) %>%
-  column_spec(5, width = "1.4cm")
+CV_hex <- gsub("#", "", CV)
+cat("\\begingroup\\setlength{\\tabcolsep}{2pt}\\tiny\n")
+cat("\\begin{tabular}{@{}lrrrp{1.3cm}@{}}\\toprule\n")
+cat("\\textbf{Axe} & $\\boldsymbol{\\lambda}$ & \\textbf{Var.} & \\textbf{Cum.} & \\textbf{Thème}\\\\\n")
+cat("\\midrule\n")
+for (i in 1:3) {
+  cat(paste0(
+    "\\textcolor[HTML]{", CV_hex, "}{\\textbf{", df_ax$Axe[i], "}}",
+    " & ", df_ax$VP[i],
+    " & ", df_ax$Var[i],
+    " & ", df_ax$Cum[i],
+    " & ", df_ax$Dom[i], "\\\\\n"))
+}
+cat("\\bottomrule\n")
+cat("\\end{tabular}\n")
+cat("\\endgroup\n")
 ```
 
-\end{column}
-\begin{column}{0.03\textwidth}\end{column}
-\begin{column}{0.57\textwidth}
+\end{minipage}\hspace{0.4em}{\color{Or}\vrule width 0.5pt}\hspace{0.4em}\begin{minipage}[t]{0.54\textwidth}
 
 ```{r tab-contrib-dims, results='asis'}
 # ── TABLEAU DROITE : Contribution (%) de chaque dimension ────
@@ -917,17 +924,14 @@ cat("{\\textbf{Gras}$^{\\star}$: dom. ($\\geq$30\\%) \\quad \\textit{Ital.}: mod
 cat("}\n")
 ```
 
-\end{column}
-\end{columns}
+\end{minipage}
 
-\vspace{0.18em}
+\vspace{0.10em}
 \begin{exampleblock}{\small Interprétation des 3 dimensions latentes}
-\footnotesize
-\begin{itemize}\setlength{\itemsep}{1pt}\setlength{\parsep}{0pt}
-  \item \textbf{Dim.\,1 — Dév. humain} (\textasciitilde{}70--80\% variance) : sépare \textbf{Dakar/Thiès} (éducation, santé, revenus) du reste
-  \item \textbf{Dim.\,2 — Infrastructure} : oppose régions \textbf{bien desservies} (routes, internet) aux régions enclavées
-  \item \textbf{Dim.\,3 — Démographie} : distingue zones \textbf{jeunes/rurales} (fécondité, agriculture) des zones urbanisées
-\end{itemize}
+\tiny\setlength{\parskip}{1pt}
+\textbf{Dim.\,1} ($\sim$70--80\% var.) : gradient global de développement — \textbf{Dakar/Thiès} dominent par l'éducation, la santé et les revenus.\quad
+\textbf{Dim.\,2} : axe infrastructure — routes et internet opposent régions connectées aux régions enclavées.\quad
+\textbf{Dim.\,3} : axe démographique — fécondité et agriculture caractérisent les zones jeunes et rurales.
 \end{exampleblock}
 
 # Étape 4 — Construction de l'indice
