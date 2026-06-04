@@ -109,6 +109,15 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{lmodern}
+\usepackage{newunicodechar}
+\newunicodechar{─}{-}
+\newunicodechar{═}{=}
+\newunicodechar{│}{|}
+\newunicodechar{├}{|}
+\newunicodechar{└}{-}
+\newunicodechar{→}{$\rightarrow$}
+\newunicodechar{≥}{$\geq$}
+\newunicodechar{≤}{$\leq$}
 \usepackage{geometry}
 \geometry{a4paper, top=2.5cm, bottom=2.5cm, left=3cm, right=2.5cm}
 \usepackage{graphicx}
@@ -129,14 +138,16 @@
 \definecolor{orclair}{RGB}{255,245,220}
 \definecolor{bordeaux}{RGB}{95,10,30}
 \definecolor{gristext}{RGB}{60,60,60}
-\hypersetup{colorlinks=true, linkcolor=rose, urlcolor=bordeaux, citecolor=rose}
+\definecolor{navyblue}{RGB}{0,51,102}
+\definecolor{navylight}{RGB}{230,236,245}
+\hypersetup{colorlinks=true, linkcolor=navyblue, urlcolor=bordeaux, citecolor=navyblue}
 \floatplacement{figure}{H}
 \floatplacement{table}{H}
 \setlength{\parskip}{6pt}
 \setlength{\parindent}{0pt}
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\color{rose}\textbf{Indice Composite Regional --- Senegal}}
+\fancyhead[L]{\small\color{navyblue}\textbf{Indice Composite Regional --- Senegal}}
 \fancyhead[R]{\small\color{or}ENSAE Dakar --- ISEP2 --- 2025-2026}
 \fancyfoot[C]{\small\color{gristext}\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
@@ -172,74 +183,67 @@
 \thispagestyle{empty}
 \setlength{\parskip}{0pt}
 
-\begin{adjustwidth}{-3cm}{-2.5cm}
-\noindent\colorbox{rose}{\parbox{\linewidth}{\vspace{0.45cm}\centering
-  {\color{white}\bfseries\normalsize
-    ENSAE DAKAR \quad$\bullet$\quad ISEP2 \quad$\bullet$\quad 2025-2026}
-\vspace{0.35cm}}}
+\noindent
 
-\noindent\colorbox{or}{\parbox{\linewidth}{\vspace{0.04cm}}}
-\end{adjustwidth}
-
-\vspace{1.2cm}
-
-\begin{center}
-{\large\bfseries\color{rose} \'{E}cole Nationale de la Statistique}\\[0.1cm]
-{\large\bfseries\color{rose} et de l'Analyse \'{E}conomique}
-\end{center}
+\begin{minipage}[t]{0.25\linewidth}
+\vspace{0pt}
+\includegraphics[height=2.2cm]{logo_ansd.jpeg}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.46\linewidth}
+\vspace{0pt}\centering
+{\small R\'{e}publique du S\'{e}n\'{e}gal}\\[0.12cm]
+{\small\textit{Un peuple, Un but, Une foi}}\\[0.20cm]
+{\small Minist\`{e}re de l'\'{e}conomie du plan et de la Coop\'{e}ration}\\[0.08cm]
+{\small Agence nationale de la statistique et de la D\'{e}mographie}\\[0.08cm]
+{\small \'{E}cole nationale de la statistique et de l'analyse \'{e}conomique}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.20\linewidth}
+\vspace{0pt}\raggedleft
+\includegraphics[height=2.2cm]{logo_ensae.png}
+\end{minipage}
 
 \vspace{0.5cm}
 
 \noindent
 
-\textcolor{or}{\rule{\linewidth}{1pt}}
-\vspace{0.5cm}
+\textcolor{navyblue}{\rule{\linewidth}{2pt}}
+\vspace{1.5cm}
 
+\setlength{\fboxrule}{2pt}
 \begin{center}
-{\color{gristext}\normalsize Traitement Statistique avec R \quad$\bullet$\quad
-Th\`{e}me 6 \quad$\bullet$\quad Niveau avanc\'{e} : \textcolor{or}{\bfseries $\bigstar\bigstar\bigstar\bigstar$}}
+\fcolorbox{rose}{white}{\parbox{0.88\linewidth}{\centering\vspace{0.8cm}
+  {\LARGE\bfseries Construction d'un Indice Composite Robuste}\\[0.4cm]
+  {\large pour les 14 R\'{e}gions du S\'{e}n\'{e}gal}
+\vspace{0.8cm}}}
 \end{center}
+\setlength{\fboxrule}{0.4pt}
 
-\vspace{1.0cm}
-
-\begin{center}
-\colorbox{rose}{\parbox{0.88\linewidth}{\centering\vspace{0.7cm}
-  {\color{white}\LARGE\bfseries Construction d'un Indice Composite Robuste}\\[0.5cm]
-  {\color{or}\large\bfseries pour les 14 R\'{e}gions du S\'{e}n\'{e}gal}
-\vspace{0.7cm}}}
-\end{center}
-
-\vspace{0.8cm}
+\vspace{1.5cm}
 
 \begin{center}
-{\large\color{gristext}\textit{Dans quelle mesure le classement r\'{e}gional d\'{e}pend-il}}\\[0.2cm]
-{\large\color{gristext}\textit{des choix m\'{e}thodologiques plut\^{o}t que de la r\'{e}alit\'{e} ?}}\\[0.4cm]
-{\normalsize\color{gristext} Normalisation \quad$\cdot$\quad ACP \quad$\cdot$\quad Pond\'{e}ration \quad$\cdot$\quad Sensibilit\'{e}}
-\end{center}
-
-\vspace{1.2cm}
-
-\begin{center}
-\begin{tabular}{@{\hspace{1cm}}r@{\quad}l@{\hspace{1cm}}}
-\textcolor{rose}{\bfseries Auteur :}       & \textbf{Boye DIBA} \\[5pt]
-\textcolor{rose}{\bfseries Fili\`{e}re :} & ISEP2 --- Ing\'{e}nierie Statistique et \'{E}conomique \\[5pt]
-\textcolor{rose}{\bfseries Ann\'{e}e :}   & 2025-2026 \\[5pt]
-\textcolor{rose}{\bfseries Code :}         & \texttt{\small expose06DibaBoye2026ENSAE} \\
-\end{tabular}
+{\large\textit{Dans quelle mesure le classement r\'{e}gional d\'{e}pend-il}}\\[0.3cm]
+{\large\textit{des choix m\'{e}thodologiques plut\^{o}t que de la r\'{e}alit\'{e} ?}}
 \end{center}
 
 \vfill
 
 \noindent
 
-\textcolor{or}{\rule{\linewidth}{1pt}}
-\vspace{0.1cm}
-\begin{center}
-{\small\color{gristext} Rapport de Travaux Pratiques --- ENSAE Dakar --- Ann\'{e}e acad\'{e}mique 2025-2026}
-\end{center}
-\begin{adjustwidth}{-3cm}{-2.5cm}
-\noindent\colorbox{rose}{\parbox{\linewidth}{\vspace{0.1cm}}}
-\end{adjustwidth}
+\textcolor{navyblue}{\rule{\linewidth}{1pt}}
+\vspace{0.3cm}
+
+\noindent
+
+\begin{minipage}[t]{0.48\linewidth}
+\textbf{Professeur :}\\[3pt]
+{\large\bfseries Hady DIALLO}
+\end{minipage}\hfill
+\begin{minipage}[t]{0.48\linewidth}
+\raggedleft
+\textbf{\'{E}tudiante :}\\[3pt]
+{\large\bfseries Boye DIBA}\\[2pt]
+{\small ISEP2 --- 2025-2026}
+\end{minipage}
 
 \clearpage
 \setlength{\parskip}{6pt}
